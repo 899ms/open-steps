@@ -99,6 +99,53 @@ printf '{"session_id":"S9","cwd":"%s","transcript_path":null,"model":"gpt-5","pe
   | HOME="$H" bash "$PACK/hooks/stop-report.sh" 2>/dev/null
 check "the session id is still found" 2 $?
 
+echo "CASE 10  Cursor: JSON both ways, and a stop that cannot block"
+# Cursor answers only to JSON on stdout and cannot block a stop, so the adapter
+# wraps the handover as additional_context and turns the report request into a
+# followup_message. Its stop payload carries no session_id, only
+# conversation_id, so the adapter keys both events on that: a stop that still
+# looked for session_id would take a fresh baseline instead of asking.
+# CURSOR_PROJECT_DIR is set on every call because Cursor always sets it and
+# the adapter follows it; left to the environment, a suite run from inside a
+# hook would measure some other repository.
+H="$(mktemp -d)"; newrepo
+# A previous report with the characters JSON cannot carry raw. The routing
+# table has none of them, so without this the escaping is never exercised.
+mkdir -p "$H/.claude/open-steps/reports/$(basename "$PWD")"
+printf '%s\n' 'path C:\Users \"quoted\" \d' > "$H/.claude/open-steps/reports/$(basename "$PWD")/latest.md"
+cstart="$(printf '{"conversation_id":"C10","generation_id":"g1","hook_event_name":"sessionStart","session_id":"S10","workspace_roots":["%s"]}' "$PWD")"
+out="$(printf '%s' "$cstart" | HOME="$H" CURSOR_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" cursor session-start 2>/dev/null)"
+case "$out" in
+  '{"additional_context":"'*"<session-handover>"*os-done-or-not*'"}') check "the handover arrives as additional_context" 0 0 ;;
+  *) check "the handover arrives as additional_context" 0 1 ;;
+esac
+[ "$(printf '%s' "$out" | wc -l | tr -d ' ')" = "0" ]; check "on one line, newlines escaped" 0 $?
+printf '%s' "$out" | grep -Fq 'path C:\\Users \\\"quoted\\\" \\d' ; check "backslashes doubled and quotes escaped" 0 $?
+echo change >> a.txt
+cstop='{"conversation_id":"C10","generation_id":"g2","hook_event_name":"stop","status":"aborted","loop_count":0}'
+out="$(printf '%s' "$cstop" | HOME="$H" CURSOR_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" cursor stop 2>/dev/null)"
+[ "$out" = "{}" ]; check "an aborted stop is left alone" 0 $?
+cstop='{"conversation_id":"C10","generation_id":"g3","hook_event_name":"stop","status":"completed","loop_count":0}'
+out="$(printf '%s' "$cstop" | HOME="$H" CURSOR_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" cursor stop 2>/dev/null)"
+code=$?
+case "$out" in
+  '{"followup_message":"Work landed'*os-done-or-not*'"}') check "a completed stop asks through followup_message" 0 0 ;;
+  *) check "a completed stop asks through followup_message" 0 1 ;;
+esac
+check "with exit 0, since 2 cannot block here" 0 $code
+# Parsed by a real interpreter where one exists, since the shape checks above
+# cannot see a bad escape. Skipped, not failed, where there is none.
+py=""
+for cand in python3 python; do
+  command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import json' >/dev/null 2>&1 && { py="$cand"; break; }
+done
+if [ -n "$py" ]; then
+  printf '%s' "$out" | "$py" -c 'import json, sys; json.load(sys.stdin)' 2>/dev/null
+  check "and it parses as JSON" 0 $?
+fi
+out="$(printf '%s' "$cstop" | HOME="$H" CURSOR_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" cursor stop 2>/dev/null)"
+[ "$out" = "{}" ]; check "the next stop is silent, no loop" 0 $?
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

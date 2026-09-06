@@ -2,7 +2,8 @@
 
 Claude Code is what the pack is built and measured on. Everything here is the
 second-best case: the skills carry over cleanly, the routing block carries over
-cleanly, the hooks carry over on one other tool and not yet on the rest.
+cleanly, the hooks carry over on two other tools, unchanged on Codex and
+through an adapter on Cursor, and not yet on Gemini CLI.
 
 What was run is marked as run. Everything else comes from a vendor's
 documentation and is called out where it matters. Same rule the skills follow.
@@ -69,7 +70,7 @@ they return.
 |---|---|---|
 | Claude Code | works, wired by the plugin | works, wired by the plugin |
 | Codex | works, script unchanged | works, script unchanged |
-| Cursor | needs a JSON wrapper | cannot block a stop at all |
+| Cursor | works, through the adapter | asks, cannot insist: a follow-up message, through the adapter; interactive sessions only, headless never reaches it |
 | Gemini CLI | needs a JSON wrapper | needs one too, on `AfterAgent` |
 
 ### Codex
@@ -112,24 +113,93 @@ rather than by any tool: `OPEN_STEPS_COOLDOWN`, `OPEN_STEPS_MIN_FILES`,
 
 ### Cursor
 
-Everything in this section is from Cursor's documentation. None of it was run.
+Run on Cursor CLI, on Windows, in an interactive session; the details are
+under "What was actually run". The desktop app and the other platforms are
+read from Cursor's documentation, and headless runs of the CLI never reach
+the stop hook, as below.
 
-Cursor has the two events, `sessionStart` and `stop`, in
-`~/.cursor/hooks.json` or `<project>/.cursor/hooks.json`, shaped
-`{"version": 1, "hooks": {"sessionStart": [{"command": "..."}]}}`. They read
-JSON on stdin and must write JSON on stdout, where invalid JSON counts as a
-hook failure. So `session-start.sh` needs its handover wrapped as
-`{"additional_context": "..."}` rather than printed. Small adapter, not written
-yet.
+Cursor has the two events, `sessionStart` and `stop`, and reads JSON on stdin
+like the others, but it answers only to JSON on stdout: plain text counts as a
+hook failure. And its `stop` cannot block. The one thing a `stop` hook can do
+is return a `followup_message`, which Cursor submits as the next user message
+and carries on, at most `loop_limit` times per conversation (5 unless
+configured). A Claude-style `{"decision": "block"}` is accepted and downgraded
+to exactly that; exit code 2 blocks only the gate hooks, `preToolUse`,
+`beforeShellExecution` and their siblings, never `stop`.
 
-The stop side is a difference in kind rather than a wrapper. A `stop` hook
-cannot block. Its one documented output is `followup_message`, which Cursor
-submits as the next user message and then carries on, bounded by `loop_limit`.
-A Claude-style `{"decision": "block"}` is accepted but downgraded to exactly
-that. Exit code 2 does block, but only on the gate hooks, `preToolUse` and
-`beforeShellExecution` and their siblings, never on `stop`. A port would ask
-for the report through `followup_message` and would have to be tested on its
-own terms.
+So the two scripts run here through `hooks/adapter.sh`, which runs them
+unchanged and translates only what goes in and what comes out. There is one
+copy of the hook logic, and the settings and kill switches above apply
+because the scripts read them, not the adapter.
+
+```text
+hooks/adapter.sh cursor session-start   the handover, as {"additional_context": "..."}
+hooks/adapter.sh cursor stop            the report request, as {"followup_message": "..."}
+```
+
+Three things it does beyond wrapping, each one a difference in Cursor's
+contract rather than a choice:
+
+- **Both events are keyed on `conversation_id`.** Cursor's `sessionStart`
+  payload carries a `session_id`, its `stop` payload does not, and the
+  baseline the start hook takes is keyed by session. A stop still reading
+  `session_id` would fall back to the constant, fail to match the baseline,
+  and silently take a new one instead of asking. `conversation_id` is on both.
+- **Only a completed stop is asked for a report.** The `stop` payload says
+  whether the turn `completed`, was `aborted` or hit an `error`. After an
+  abort or an error the adapter answers `{}` without running the stop script,
+  so the change stays pending for the next completed stop in the same
+  conversation, and nobody gets a message submitted on their behalf right
+  after pressing stop. A new chat is a new session start, which takes a
+  fresh baseline over the tree as it stands; that is how the hooks behave
+  everywhere, not something the adapter adds.
+- **The working directory is `CURSOR_PROJECT_DIR`** when Cursor sets it, which
+  it does on every hook. The scripts find the repository from there.
+
+Wire it in `~/.cursor/hooks.json` (or `<project>/.cursor/hooks.json`),
+replacing the path with your clone:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "/absolute/path/to/open-steps/hooks/adapter.sh cursor session-start", "timeout": 10 }
+    ],
+    "stop": [
+      { "command": "/absolute/path/to/open-steps/hooks/adapter.sh cursor stop", "timeout": 10 }
+    ]
+  }
+}
+```
+
+On Windows, put the shell in front, quoted:
+`"\"C:/Program Files/Git/bin/bash.exe\" D:/path/to/open-steps/hooks/adapter.sh cursor stop"`,
+and start Cursor from PowerShell or cmd. From a Git Bash shell the CLI reads
+the bash-flavoured environment, runs its own PowerShell hook wrapper inside
+bash, and every hook fails with exit code 2 before the adapter is reached.
+The CLI writes a session log under the temp directory, in
+`cursor-agent-logs-<user>/`, with one `cli.hook.executed` line per hook
+carrying the exit code; that is where to look first if nothing seems to
+happen. The desktop app has a Hooks output channel and a Hooks page under
+Customize for the same purpose, per its documentation.
+
+**What happens when the agent ignores the follow-up.** On Claude Code and
+Codex the report is required: the stop is refused until it exists. Here it is
+asked for. Cursor submits the request as the next message and the agent
+normally writes the report, which lands outside the repository and so leaves
+the fingerprint alone; the next stop is silent. If the agent stops again
+without writing it, nothing forces the matter. The stop script records the
+fingerprint when it asks, so the same change is never asked about twice: the
+hook stays silent until new work lands, and the cooldown
+(`OPEN_STEPS_COOLDOWN`, 15 minutes by default) applies from the last ask.
+The adapter asks once per landed change and does not raise `loop_limit`;
+Cursor's default of 5 stays as the outer ceiling. Should a conversation ever
+reach it, Cursor drops the follow-up and the report is simply not written.
+Either way the next session's handover carries whatever `latest.md` holds,
+which may be an older report, with nothing to say a newer one was skipped.
+That is the honest shape of a stop that cannot block, and it is what the row
+in the table above means by "asks, cannot insist".
 
 One thing to check first if nothing loads at all: `~/.agents/skills/` is read
 directly, but the compatibility paths `~/.claude/skills/` and
@@ -157,14 +227,16 @@ final response, and it does take `decision: "deny"` with a `reason`, where the
 reason is sent to the agent as a new prompt asking for a correction. That is
 the same shape as this pack's exit code 2 with the request on stderr.
 
-So both hooks can be ported here too. Neither is ported yet.
+So both hooks can be ported here too, the same way as on Cursor with a
+different field name and a stop that can refuse. Neither is ported yet.
 
-### What those two lose
+### What Gemini CLI loses
 
-Until someone does that work, both tools get the skills and the routing block,
-which is the part that changes what the agent says to you. What they lose is
-the report at the end of a session, and the previous report in front of the
-next one.
+Until someone does that work, Gemini CLI gets the skills and the routing
+block, which is the part that changes what the agent says to you. What it
+loses is the report at the end of a session, and the previous report in front
+of the next one. Cursor loses less: the report is asked for rather than
+required, as above.
 
 ## What was actually run
 
@@ -190,9 +262,38 @@ to report. `hooks/test.sh` covers this shape as CASE 9, so it stays covered.
 
 Not run: hooks firing inside a live Codex session, which needs a real turn
 rather than a rendered prompt. The trust step above is read from how Codex
-implements hooks, not from watching it happen. Not run at all: anything on
-Cursor or Gemini CLI. Their paths and contracts here come from their own
-documentation.
+implements hooks, not from watching it happen.
+
+On Cursor CLI 2026.09.02 on Windows 11, with the skills copied to
+`~/.agents/skills/` and the adapter wired in `~/.cursor/hooks.json` as above,
+an interactive session was started in a throwaway repository and asked to
+append one line to a file. Cursor's own session log records the sequence:
+
+```text
+cli.hook.executed  hookStep=sessionStart  status=success  exitCode=0
+[hooks] sessionStart additional_context received {"length":1971}
+cli.hook.executed  hookStep=stop          status=success  exitCode=0
+[hooks] Stop hook returned followup_message, queueing (loop 1)
+cli.hook.executed  hookStep=stop          status=success  exitCode=0
+```
+
+The first stop, after the edit, came back with the report request and Cursor
+submitted it as the next message in the transcript. The agent invoked
+`os-done-or-not` and wrote `latest.md` under the reports folder. The second
+stop, after the report, returned `{}` and the session ended: one request,
+no loop. The handover that session received already carried the report of an
+earlier run, 1971 characters against 854 for the bare routing table.
+
+Two things came out of running it rather than reading about it. Print mode
+(`agent -p`) and a prompt piped through stdin both count as headless, and
+headless fires `sessionStart` only: the handover arrives, the stop hook is
+never dispatched, so no report is asked for. And the Windows shell trap
+above, which cost a first attempt.
+
+Not run: the Cursor desktop app, project-level `.cursor/hooks.json`, and
+Cursor on macOS or Linux. The contract is the same per Cursor's documentation,
+but none of that was watched. Not run at all: anything on Gemini CLI. Its paths and
+contract here come from its own documentation.
 
 ## What does not come across
 
