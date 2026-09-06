@@ -121,6 +121,11 @@ We found all three by running it, not by reading about it.
   per shape the scorer must handle, short enough to read. They exist to show
   the scorer failing and then passing on a shape that bit once; nothing in
   them was said by a model, and they never feed `results.md`.
+- **A run leaves no reports folder for its throwaway project.** `run.sh` switches
+  the stop hook off for the sessions it starts (`OPEN_STEPS_DISABLE=1`); the
+  session-start hook stays on because its reminder is part of what is measured.
+  Nothing lands in git during a run, so the numbers do not change, only the
+  leftovers under `~/.claude/open-steps/reports/` stop appearing.
 - `claude -p --bare` skips the login on purpose and cannot sign in.
 - Pointing the tool at an empty home folder signs it out too.
 - macOS ships an old bash, version 3.2. In that version one empty list in the
