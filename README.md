@@ -115,7 +115,9 @@ To update: `git pull` inside `open-steps/`, then
 updates from your clone, not from GitHub, so without the pull "already at the
 latest version" is true of the folder and wrong about this repository. And
 `update` wants the full plugin@marketplace name, where `uninstall` accepts the
-short one. To remove: `claude plugin uninstall open-steps`, then take the
+short one. And the update moves files only when the version number changed: a
+pull that brings no new version brings nothing to the installed copy, so every
+change meant to reach it ships with a version bump and a release. To remove: `claude plugin uninstall open-steps`, then take the
 block back out of your `CLAUDE.md`.
 
 The one piece that stays manual is the writing style, because turning it on
