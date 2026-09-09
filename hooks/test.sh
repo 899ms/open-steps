@@ -146,6 +146,58 @@ fi
 out="$(printf '%s' "$cstop" | HOME="$H" CURSOR_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" cursor stop 2>/dev/null)"
 [ "$out" = "{}" ]; check "the next stop is silent, no loop" 0 $?
 
+echo "CASE 11  Gemini CLI: JSON both ways, and a stop that refuses on AfterAgent"
+# Gemini CLI wants JSON too, with its own field names: the handover goes in
+# hookSpecificOutput.additionalContext, and the report is asked for through
+# decision "deny" with a reason, on AfterAgent. SessionEnd would run the same
+# script, exit cleanly, and never ask; that is why the event is named here.
+# Every Gemini payload carries session_id and every hook gets
+# GEMINI_SESSION_ID; the adapter reads the first and falls back to the second.
+H="$(mktemp -d)"; newrepo
+gstart="$(printf '{"session_id":"G11","transcript_path":"%s/t.json","cwd":"%s","hook_event_name":"SessionStart","timestamp":"2026-01-01T00:00:00Z","source":"startup"}' "$H" "$PWD")"
+out="$(printf '%s' "$gstart" | HOME="$H" GEMINI_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" gemini session-start 2>/dev/null)"
+case "$out" in
+  '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"'*"<session-handover>"*os-done-or-not*'"}}') check "the handover arrives as hookSpecificOutput.additionalContext" 0 0 ;;
+  *) check "the handover arrives as hookSpecificOutput.additionalContext" 0 1 ;;
+esac
+[ "$(printf '%s' "$out" | wc -l | tr -d ' ')" = "0" ]; check "on one line, newlines escaped" 0 $?
+grep -q '^OS_STATE_SESSION=G11$' "$H/.claude/open-steps/reports/$(basename "$PWD")/.stop-state"
+check "the baseline is keyed on the session id Gemini sent" 0 $?
+gafter="$(printf '{"session_id":"G11","transcript_path":"%s/t.json","cwd":"%s","hook_event_name":"AfterAgent","timestamp":"2026-01-01T00:01:00Z","prompt":"append a line","prompt_response":"Done.","stop_hook_active":false}' "$H" "$PWD")"
+out="$(printf '%s' "$gafter" | HOME="$H" GEMINI_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" gemini stop 2>/dev/null)"
+[ "$out" = "{}" ]; check "nothing landed, AfterAgent lets the turn end" 0 $?
+echo change >> a.txt
+out="$(printf '%s' "$gafter" | HOME="$H" GEMINI_PROJECT_DIR="$PWD" bash "$PACK/hooks/adapter.sh" gemini stop 2>/dev/null)"
+code=$?
+# The reason ends with where to save the report: Gemini's file tool refuses
+# paths outside the workspace, and the reports folder is one.
+case "$out" in
+  '{"decision":"deny","reason":"Work landed'*os-done-or-not*'shell tool'*'"}') check "work landed, AfterAgent refuses with the request as the reason" 0 0 ;;
+  *) check "work landed, AfterAgent refuses with the request as the reason" 0 1 ;;
+esac
+check "with exit 0, the refusal is in the JSON" 0 $code
+if [ -n "$py" ]; then
+  printf '%s' "$out" | "$py" -c 'import json, sys; json.load(sys.stdin)' 2>/dev/null
+  check "and it parses as JSON" 0 $?
+fi
+# Gemini marks the retry it runs after a deny with stop_hook_active true. The
+# adapter lets that one through without asking, whatever landed in it, since
+# denying the retry is the one way to loop. Shown with the cooldown off and a
+# further change, which would otherwise be asked for.
+echo more >> a.txt
+gretry="${gafter/\"stop_hook_active\":false/\"stop_hook_active\":true}"
+out="$(printf '%s' "$gretry" | HOME="$H" GEMINI_PROJECT_DIR="$PWD" OPEN_STEPS_COOLDOWN=0 bash "$PACK/hooks/adapter.sh" gemini stop 2>/dev/null)"
+[ "$out" = "{}" ]; check "the retry after the report is let through, no loop" 0 $?
+# A payload without session_id: the adapter falls back to GEMINI_SESSION_ID
+# and finds the baseline, so the change above is asked for now. Keyed on
+# anything else, this stop would take a fresh baseline and answer {}.
+gnoid="${gafter/\"session_id\":\"G11\",/}"
+out="$(printf '%s' "$gnoid" | HOME="$H" GEMINI_PROJECT_DIR="$PWD" GEMINI_SESSION_ID=G11 OPEN_STEPS_COOLDOWN=0 bash "$PACK/hooks/adapter.sh" gemini stop 2>/dev/null)"
+case "$out" in
+  '{"decision":"deny","reason":"Work landed'*'"}') check "without session_id in the payload, GEMINI_SESSION_ID finds the same baseline" 0 0 ;;
+  *) check "without session_id in the payload, GEMINI_SESSION_ID finds the same baseline" 0 1 ;;
+esac
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

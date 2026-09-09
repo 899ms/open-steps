@@ -140,16 +140,19 @@ instructions, doing the same job it does in `CLAUDE.md` above:
 |---|---|---|
 | Codex | `~/.codex/AGENTS.md` | checked, on Codex CLI 0.145 |
 | Cursor | `AGENTS.md` in the project root | Cursor's documentation |
-| Gemini CLI | `~/.gemini/GEMINI.md` | Gemini CLI's documentation |
+| Gemini CLI | `~/.gemini/GEMINI.md` | checked, on Gemini CLI 0.58.0 |
 
 The hooks are the part that differs per tool. Codex runs both of them
 unchanged, with a short block in `~/.codex/config.toml` and one trust prompt to
 accept. Cursor runs both through `hooks/adapter.sh`, which wraps them in the
 JSON Cursor wants; a stop cannot be blocked there, so the report is asked for
 as a follow-up message rather than required, and only in an interactive
-session, since a headless run never reaches the stop hook. Gemini CLI wants
-JSON too, and its adapter is not written yet. On all three, the skills and the routing block
-install; how reliably the skills fire there is not checked.
+session, since a headless run never reaches the stop hook. Gemini CLI runs
+both through the same adapter, and there the stop can refuse, on `AfterAgent`;
+the one thing to know is that its file tool cannot write outside the
+workspace, so the request says to save the report with the shell tool, and
+the docs say the rest. On all three, the skills and
+the routing block install; how reliably the skills fire there is not checked.
 
 The commands, the paths, the Codex hook config, and what was run rather than
 read: [`docs/other-agents.md`](docs/other-agents.md).

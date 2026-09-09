@@ -22,8 +22,8 @@ to change something, six rules cover it.
    treats it as read-only. `Write(path)` is not a rule Claude Code reads, use
    `Edit(path)`.
 
-Testing the hooks: `bash hooks/test.sh` puts both of them through ten
-scenarios in throwaway repositories, the last one through the Cursor adapter, with a throwaway home directory, so it
+Testing the hooks: `bash hooks/test.sh` puts both of them through eleven
+scenarios in throwaway repositories, the last two through the adapter (Cursor, then Gemini CLI), with a throwaway home directory, so it
 touches nothing of yours. Run one by hand instead and remember that both read
 from standard input: add `</dev/null` or they sit there waiting for a payload
 that never comes.

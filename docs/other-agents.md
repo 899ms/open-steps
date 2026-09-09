@@ -2,8 +2,8 @@
 
 Claude Code is what the pack is built and measured on. Everything here is the
 second-best case: the skills carry over cleanly, the routing block carries over
-cleanly, the hooks carry over on two other tools, unchanged on Codex and
-through an adapter on Cursor, and not yet on Gemini CLI.
+cleanly, the hooks carry over on all three, unchanged on Codex and through
+one adapter on Cursor and Gemini CLI.
 
 What was run is marked as run. Everything else comes from a vendor's
 documentation and is called out where it matters. Same rule the skills follow.
@@ -71,7 +71,7 @@ they return.
 | Claude Code | works, wired by the plugin | works, wired by the plugin |
 | Codex | works, script unchanged | works, script unchanged |
 | Cursor | works, through the adapter | asks, cannot insist: a follow-up message, through the adapter; interactive sessions only, headless never reaches it |
-| Gemini CLI | needs a JSON wrapper | needs one too, on `AfterAgent` |
+| Gemini CLI | works, through the adapter | works, through the adapter, on `AfterAgent`, where a stop can refuse |
 
 ### Codex
 
@@ -208,35 +208,112 @@ and other configs" setting.
 
 ### Gemini CLI
 
-Everything in this section is from Gemini CLI's documentation. None of it was
-run.
+Run on Gemini CLI 0.58.0 on Windows 11, interactive and headless; what was
+watched is under "What was actually run" below. The rest of this section is
+its documentation and its source, and says so where it matters.
 
 Hooks live in `settings.json`, user-level `~/.gemini/settings.json` or
 project-level `.gemini/settings.json`, under a `hooks` object keyed by event
-name. They read JSON on stdin and must write JSON on stdout, and the
-documentation is blunt about it: a script must not print plain text to stdout
-other than the final JSON. So the same wrapper Cursor needs applies here with a
-different field name. `SessionStart` injects through
-`hookSpecificOutput.additionalContext`.
+name, on by default (`hooksConfig.enabled`). They read JSON on stdin and answer
+with JSON on stdout. `SessionStart` takes `hookSpecificOutput.additionalContext`,
+which the CLI adds to the conversation as a first turn.
 
 The stop side needs the right event, and it is not the obvious one. `SessionEnd`
 fires when the CLI exits, is best effort, is not waited for, and has all its
 flow-control fields ignored, so a report can never be asked for from there.
-`AfterAgent` is the one that matches: it fires once per turn after the model's
-final response, and it does take `decision: "deny"` with a `reason`, where the
-reason is sent to the agent as a new prompt asking for a correction. That is
-the same shape as this pack's exit code 2 with the request on stderr.
+`AfterAgent` is the one that matches: it fires after the model's final response
+of each turn, and it takes `decision: "deny"` with a `reason`, which goes back
+to the agent as the next prompt, with `stop_hook_active` set on that retry.
+That is the shape of this pack's exit code 2 with the request on stderr, so on
+Gemini CLI the stop keeps its refusal, unlike on Cursor.
 
-So both hooks can be ported here too, the same way as on Cursor with a
-different field name and a stop that can refuse. Neither is ported yet.
+`hooks/adapter.sh` does the translation, the same script Cursor uses:
+
+```bash
+hooks/adapter.sh gemini session-start    # {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":...}}
+hooks/adapter.sh gemini stop             # {"decision":"deny","reason":...} when work landed, {} otherwise
+```
+
+Every Gemini payload carries `session_id`, and every hook gets
+`GEMINI_SESSION_ID` in its environment; the adapter reads the payload and
+falls back to the variable, so both events key the same baseline. The
+working directory follows `GEMINI_PROJECT_DIR`, which the CLI sets on every
+hook, then the payload's `cwd`. Wired in `~/.gemini/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "name": "open-steps-session-start",
+      "command": "bash /path/to/open-steps/hooks/adapter.sh gemini session-start" }] }],
+    "AfterAgent": [{ "hooks": [{ "type": "command", "name": "open-steps-stop-report",
+      "command": "bash /path/to/open-steps/hooks/adapter.sh gemini stop" }] }]
+  }
+}
+```
+
+No `timeout` is set, so the CLI's default of 60 seconds applies (read in its
+source; the field takes milliseconds). Leave it generous rather than tight:
+the stop took under two seconds in a one-repository folder and up to eight in
+a hub of 25 checkouts on the Windows machine this was run on, and
+`stop-report.sh` records the request before the adapter can answer, so a hook
+killed in between has marked a change as asked for that nobody heard. The run
+itself used `"timeout": 10000`, which was enough for the throwaway repository.
+On Windows the CLI runs every hook command through PowerShell, whatever shell
+you sit in, so the command becomes
+`$input | & 'C:\Program Files\Git\bin\bash.exe' 'D:/path/to/open-steps/hooks/adapter.sh' gemini stop`,
+and the `$input |` matters: without it the payload never reaches bash. That
+is the form that was run; the Unix form above is the same command without the
+PowerShell wrapping and was not.
+
+What happens after the refusal. The retry has the request as its prompt and
+its `AfterAgent` arrives with `stop_hook_active` true; the adapter answers
+`{}` to that one without running the stop script, whatever landed in it,
+since denying the retry is the one way to loop. The report the retry writes
+lives outside the repository, so the fingerprint is unchanged for the turns
+after it too. The CLI has no cap of its own on denies beyond its turn budget
+(read in its source, not tested to the limit); the stop script's own state is
+what keeps it to one request per landed change, the same as everywhere else.
+
+The one thing to know before wiring it: the reports folder,
+`~/.claude/open-steps/reports/`, is outside Gemini's workspace, and Gemini's
+file tools refuse to write outside the workspace directories while its shell
+tool does not. Which one the agent reaches for is the model's choice. In the
+interactive session it used the shell and the report landed. In the headless
+one it used `write_file`, was refused, and took the refusal's own suggestion:
+it wrote the report to Gemini's temp folder for the project,
+`~/.gemini/tmp/<project>/latest.md`, where the next session's handover never
+looks. So the gemini stop adds one sentence to the request, to save the
+report with the shell tool and why; it went in after that run and was not
+itself watched. Adding the reports folder as a workspace directory,
+`--include-directories ~/.claude/open-steps/reports` or `/directory add` in a
+session, should make `write_file` work as well; that flag is from Gemini's
+documentation and was not run.
+
+Also read in the source, not relied on: Gemini CLI 0.58 accepts plain text from
+a hook too, exit 0 as a message shown to you and exit 2 as a refusal with the
+text as the reason. So `stop-report.sh` unchanged would refuse on `AfterAgent`
+as well. `session-start.sh` unchanged would not do what is wanted: its handover
+would be shown to you, not handed to the model. The adapter is the wiring
+that was run, on both events.
 
 ### What Gemini CLI loses
 
-Until someone does that work, Gemini CLI gets the skills and the routing
-block, which is the part that changes what the agent says to you. What it
-loses is the report at the end of a session, and the previous report in front
-of the next one. Cursor loses less: the report is asked for rather than
-required, as above.
+With the adapter wired, two things, both from how the CLI handles a session
+and both read in its source rather than watched:
+
+- `/clear` (also `/new`) starts a new session id and fires `SessionStart`
+  again with `source: "clear"`. The baseline is retaken under the new id, so
+  a change that was waiting out the cooldown is absorbed and never asked
+  about. On Claude Code the id survives a clear and the pending report does
+  not get lost.
+- `AfterAgent` fires after a turn you cancelled too, and its payload has no
+  status field to tell one from a finished turn. The request goes out, the
+  retry does not run, and the stop script has already recorded the change as
+  asked for; it comes up again only once something else lands after it.
+
+Not checked: how reliably the skills fire from the routing block, since the
+only skill watched firing was `os-done-or-not`, invoked from the stop's
+request.
 
 ## What was actually run
 
@@ -292,8 +369,48 @@ above, which cost a first attempt.
 
 Not run: the Cursor desktop app, project-level `.cursor/hooks.json`, and
 Cursor on macOS or Linux. The contract is the same per Cursor's documentation,
-but none of that was watched. Not run at all: anything on Gemini CLI. Its paths and
-contract here come from its own documentation.
+but none of that was watched.
+
+On Gemini CLI 0.58.0 on Windows 11, signed in with a Gemini API key, skills in
+`~/.agents/skills/`, the routing block in `~/.gemini/GEMINI.md`, and the
+adapter wired in `~/.gemini/settings.json` in the PowerShell form above, an
+interactive session was started in a throwaway repository with
+`--approval-mode yolo` and asked to append one line to a file. What the screen
+showed, in order: `Executing Hook: open-steps-session-start` at startup; the
+edit; `Executing Hook: open-steps-stop-report`; then
+
+```text
+⚠ Agent execution blocked: Work landed during this session (changed: os-gemini-live).
+  Before finishing, use the os-done-or-not skill to produce the session report: ...
+ℹ This request failed. Press F12 for diagnostics, ...
+```
+
+where the second line is how the CLI renders a blocked turn, since the retry
+then ran. The retry activated `os-done-or-not`, wrote `latest.md` under the
+reports folder through the shell tool, and the following `AfterAgent`
+answered `{}`: the state file's fired-at stamp stayed at the first request and
+`/quit` exited 0. One refusal, no loop. The handover a next session gets from
+that repository then carries the report, 2180 characters against 1075 for
+the bare routing block.
+
+A first attempt in `auto_edit` mode went the same way up to the retry, which
+then sat on a permission prompt to activate the skill; a person at the
+keyboard answers it, the driver did not, so the report was never written. In
+`yolo` it was. Headless (`gemini -p`, with `--yolo --skip-trust`) was run
+too: `SessionStart` fired and took a baseline under a fresh session id,
+`AfterAgent` fired and refused, the retry ran, `write_file` was refused for
+the reports folder, and the agent wrote the report to
+`~/.gemini/tmp/os-gemini-live/latest.md` instead, the project temp folder the
+refusal named as allowed; a next session's handover from that repository does
+not carry it. That is what the sentence about the shell tool in the request
+is for. So unlike Cursor, headless reaches the stop hook here. One more thing
+from running it: the
+free tier's daily quota on the default model ran out after two interactive
+sessions, and the headless run used a lighter model.
+
+Not run: Gemini CLI on macOS or Linux, the project-level settings file,
+`--include-directories`, and Google sign-in, which Google was refusing for
+individual accounts on this version at the time.
 
 ## What does not come across
 

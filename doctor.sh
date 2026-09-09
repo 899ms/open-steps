@@ -481,7 +481,7 @@ unknown "A writing style can be set elsewhere too. This only read the settings f
 
 # --- other tools ----------------------------------------------------------
 section "Other tools"
-fact "Cursor runs the hooks through hooks/adapter.sh, wired by hand; see docs/other-agents.md. Gemini CLI is not supported yet, see issue #3."
+fact "Cursor and Gemini CLI run the hooks through hooks/adapter.sh, wired by hand; see docs/other-agents.md."
 
 # --- the result -----------------------------------------------------------
 section "Result"
