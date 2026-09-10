@@ -94,7 +94,7 @@ case "$tool" in
   cursor) dir="${CURSOR_PROJECT_DIR:-}" ;;
   gemini) dir="${GEMINI_PROJECT_DIR:-}"; [ -n "$dir" ] || dir="$(field cwd)" ;;
 esac
-[ -n "$dir" ] && cd "$dir" 2>/dev/null
+[ -n "$dir" ] && cd "$dir" 2>/dev/null || true
 
 # The session id the hooks will see. Cursor: conversation_id, the one field
 # present on both of its events. Gemini CLI: session_id as sent, else the
