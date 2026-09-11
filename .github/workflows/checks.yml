@@ -93,3 +93,8 @@ jobs:
       # actually run, so a schema change surfaces here instead of in an issue.
       - run: npm install -g @anthropic-ai/claude-code
       - run: claude plugin validate .
+      # The root form validates the marketplace manifest only and never opens a
+      # skill file (measured: a skill with no frontmatter passes it). The
+      # plugin-manifest form does open them, and --strict turns its warnings
+      # into exit 1, which is what makes a broken skill header fail here.
+      - run: claude plugin validate --strict .claude-plugin/plugin.json

@@ -12,8 +12,11 @@ to change something, seven rules cover it.
 3. **English only in the files.** The skills detect what language you speak
    and answer in it. Writing one language into a skill file would break that
    for everyone else.
-4. **Run `claude plugin validate .` first.** It catches broken file headers
-   that would otherwise make a skill fail silently.
+4. **Run `claude plugin validate --strict .claude-plugin/plugin.json` first.**
+   It opens every skill file and fails on a broken header that would otherwise
+   make the skill fail silently. `claude plugin validate .` checks the
+   marketplace manifest only, so on its own it proves nothing about the skills;
+   CI runs both.
 5. **One skill, one moment.** If a skill needs two different "use this when"
    stories, it's two skills.
 6. **Keep the tool list short.** A skill's `allowed-tools` skips permission
