@@ -62,10 +62,8 @@ Close the gaps in this order, and stop as soon as a gap is closed.
 1. **Look it up yourself.** Documents, data, the repository, the last report
    in `~/.claude/open-steps/reports/`, what went wrong last time.
 2. **Ask, but earn the ask.** Only a gap where guessing wrong would change the
-   verdict is worth the user's attention, and the pack's own rule holds here:
-   one question at a time, through `os-ask-simple`. Three is plenty. Nobody
-   there to answer, or an answer that would not move the verdict -> skip
-   straight to 3.
+   verdict, one question at a time through `os-ask-simple`, three at most.
+   Nobody there to answer, or an answer that would not move the verdict -> 3.
 3. **Write the guess down as a guess.** Put the assumed value in its line,
    mark it `(assumed)`, and repeat it under "What we are assuming".
 
@@ -85,22 +83,13 @@ change it at any point.
 When in doubt, Full. The cost of a full look is a few minutes; the cost of a
 quick look at a one-way door is the door.
 
-Dispatch one general-purpose agent. Its prompt is these four things in order,
-nothing else:
+Dispatch one general-purpose agent. Send it four things and nothing else: the
+analysis prompt copied exactly from the bottom of this skill, `MODE: Full` or
+`MODE: Quick`, `LANGUAGE: <the language above>`, and the brief. Never send an
+instruction to run this skill: the fresh session would load it and start over.
 
-1. the whole analysis prompt - already inlined at the bottom of this skill,
-   under "The analysis prompt, verbatim"
-2. `MODE: Full` or `MODE: Quick`
-3. `LANGUAGE: <the language from above>`
-4. the brief
-
-Copy the inlined prompt exactly. Never summarise it or paste part of it. Its
-rules are what stop the answer turning into a list of worries, and the writing
-rules inside it are the only ones that reach the agent at all.
-
-One agent, not several. Two reports have two verdicts and two candidates for
-the single belief nobody is questioning, and merging them is exactly the
-editing that step 3 forbids.
+One agent, not several. Where no fresh agent can be started, say so in the
+first line of the report, name the tool, and never use the word independent.
 
 ## Step 3 - give it to the user straight
 
@@ -110,11 +99,7 @@ the user seemed committed. Bad news that arrives late is worth nothing.
 
 Then offer to turn the "Fix before you commit" list into real things: edits to
 the plan, tickets, an owner and a date per item, a reminder for each early
-warning. That offer is the point of the whole exercise - a premortem nobody
-acts on was entertainment.
-
-"Go ahead" is delivered just as plainly. It means the plan was attacked and
-held.
+warning. "Go ahead" is delivered just as plainly.
 
 ## Hard rules
 
@@ -138,22 +123,19 @@ held.
 
 ## Known gotchas
 
-- **No date to be judged by means no premortem.** "It failed" is meaningless
-  without "by when". Pick a date that fits the decision, and say you picked it.
-- **The brief is where this is won or lost.** The fresh agent sees nothing
-  else. The usual failure is a brief missing the one constraint that made the
-  decision sensible, which produces a confident report attacking a plan nobody
-  proposed.
-- **Fewer than three risks reads as a lazy analysis and is often the right
-  answer.** The record of what was checked is what tells those apart.
+- **No date to be judged by means no premortem.** Pick a date that fits the
+  decision, and say you picked it.
+- **The brief is where this is won or lost.** The fresh agent sees nothing else.
+- **Fewer than three risks is often the right answer.** Keep the record of what
+  was checked.
 - **Something reversible and cheap does not need this.** Quick look, or say it
-  does not need one. Running a full attack on a two-day experiment teaches the
-  user to ignore the next one.
-- **"Try it small first" is not a soft no.** It means the unknowns are
-  testable and worth testing before the money moves.
-- **The user may go ahead against all of it.** That is their decision and they
-  now have the early warnings. Note it once, set the tripwires up if they want
-  them, and do not re-argue the report.
+  does not need one.
+- **"Try it small first" is not a soft no.** Test the unknowns before the money
+  moves.
+- **The user may go ahead against all of it.** Note it once, set the tripwires
+  up if they want them, and do not re-argue the report.
+
+The reasoning behind these is in [`references/why-these-rules.md`](references/why-these-rules.md).
 
 ## The analysis prompt, verbatim
 
