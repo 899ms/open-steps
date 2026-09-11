@@ -27,6 +27,9 @@ from a date.
 Two signals instead of one, and the parts enumerated from `git ls-files`
 rather than from memory.
 
+> _Measured 14 Aug. Stages are dated where they stand; anything undated in this
+> file is not measured._
+>
 > ## What this is
 >
 > A parcel-tracking service for small shops. Sellers paste a tracking number,
@@ -37,13 +40,13 @@ rather than from memory.
 >
 > | Feature | What it does | Stage | Last worked on | Signal |
 > |---|---|---|---|---|
-> | Tracking page | The page customers watch | live | 12 Aug | active |
-> | Carrier polling | Asks carriers where a parcel is | live | 9 Aug | active |
-> | Emails | Tells the customer it moved | live | 6 Jan | stable |
-> | Address lookup | Turns an address into a map point | live | 3 Nov | stable |
-> | Receipts | Makes the PDF receipt | live | 21 Sep | stable |
+> | Tracking page | The page customers watch | live (12 Aug) | 12 Aug | active |
+> | Carrier polling | Asks carriers where a parcel is | live (9 Aug) | 9 Aug | active |
+> | Emails | Tells the customer it moved | live (6 Jan) | 6 Jan | stable |
+> | Address lookup | Turns an address into a map point | live (3 Nov) | 3 Nov | stable |
+> | Receipts | Makes the PDF receipt | live (21 Sep) | 21 Sep | stable |
 > | Spreadsheet import | Bulk-adds parcels from a file | not checked | 4 Dec | stable |
-> | Partner callbacks | Tells a shop's own system | live | 2 Feb | stable |
+> | Partner callbacks | Tells a shop's own system | live (2 Feb) | 2 Feb | stable |
 > | **Old SMS sender** | Sent texts before we moved to email | not checked | 18 Mar | **unused - 11 months** |
 >
 > ## Worth retiring
@@ -57,7 +60,8 @@ rather than from memory.
 > - Finish the spreadsheet import - never confirmed working (report, 4 Dec)
 > - Decide on the old SMS sender - retire candidate above
 >
-> _Age and wiring measured 14 Aug. Stage comes from session reports._
+> _Age and wiring measured 14 Aug, fresh this pass. Stage comes from session
+> reports and is only as current as the date beside it._
 
 ## What changed, and why each change is in the rules
 

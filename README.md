@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
 
 **Skills that keep development open to the person running it: the sessions,
-the decisions, the next steps, all in plain language.**
+the decisions, the next steps, the whole picture, all in plain language.**
 
 By [Pavlo Kharmanskyi](https://github.com/kharmanskyi).
 
@@ -177,13 +177,20 @@ way, `os-what-could-go-wrong` attacks anything hard to undo before it is
 agreed, and `os-say-simple` rescues any text that still reads like
 engineering.
 
-`os-big-picture` is the one that is not session-shaped. Everything else
-describes a session; it keeps the standing picture of the product, in a
-`BIG-PICTURE.md` in the project itself. It answers "where are we now" - the
-command and the file it leaves behind say the same thing, and neither promises
-a plan. That closes the loop at the point it used to break: `os-whats-next` is
-told to read the backlog **always**, and until now nothing in the pack ever
-wrote one. Two things it will not do - invent a task, or delete anything.
+`os-big-picture` keeps one standing file about the product: what it is, what is
+in it and how far each part got, what nobody has touched, and what is queued. It
+is written in the owner's words and serves two readers. The person gets the
+whole picture without reading code. The agent gets what the code cannot tell
+it: what the product is for, who runs it, and what is live rather than merely
+present, which is exactly what goes missing after a cleared context or a new
+session. The architecture itself stays out, because the agent derives that from
+the code, and Claude Code's own guidance keeps `CLAUDE.md` short for the same
+reason ([memory docs](https://code.claude.com/docs/en/memory)). The file appears
+the first time you ask for it and refreshes after each report, so whatever
+either reader sees carries its date. It also closes the loop at the point it
+used to break: `os-whats-next` is told to read the backlog **always**, and
+until now nothing in the pack wrote one. Two things it will not do: invent a
+task, or delete anything.
 
 It measures how old each part is and whether anything still reaches it, in
 `scripts/census.sh`, which the hook suite runs against a repository with
@@ -198,8 +205,7 @@ Where the project already has a task tracker connected, it offers to open the
 queued items as tickets - it shows the list first, checks each one against
 tickets that exist, and creates nothing until you say yes.
 
-This is the only skill whose output has to stay fresh, and a stale map is
-worse than no map - the pack says so itself about trackers. So the map is
+Its output has to stay fresh, and a stale map is worse than no map - the pack says so itself about trackers. So the map is
 built to age out loud. It states the day it was measured on its first line;
 the two columns that come from git are re-measured on every pass and never
 read back out of the file; and the one column nothing can measure, how far a
