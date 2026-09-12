@@ -35,9 +35,10 @@ scripts in between, and a check that keeps the scripts honest.
   long is the answer, did any commit codes leak through, how much jargon is
   left. Whether the `with` arm really had the pack loaded comes from the same
   log: a `Skill` call that was denied does not count, and a model whose
-  with-runs were all denied gets one line saying "not measured" instead of two
-  rows of numbers. Every transcript says which model wrote it, so renaming a
-  file cannot move a column.
+  with-runs never had a skill loaded, because the call was denied or never
+  made, gets one line saying "not measured" and which of the two it was,
+  instead of two rows of numbers. Every transcript says which model wrote it,
+  so renaming a file cannot move a column.
 - **The transcripts stay out of the repository.** One measurement is one run of
   the agent, so a full pass over every phrase on three models is 234 runs and
   12 MB of logs. They go to `~/.claude/open-steps/evals/<day>/`, next to where
@@ -160,8 +161,9 @@ We found these by running it, not by reading about it.
   columns said nothing. Since 2026-09-12 the two quality arms may call `Skill`
   (measured on Claude Code 2.1.222: the call runs and `permission_denials`
   stays empty), and the scorer prints "not measured" for a model whose
-  with-runs were all denied. The two earlier days now read that way, and the
-  next scored day replaces their table in `results.md`.
+  with-runs never had a skill loaded, saying whether the call was denied or
+  never made. The two earlier days now read that way, and the next scored day
+  replaces their table in `results.md`.
 - **The `os-check-work` phrases could reach real sessions.** `run.sh` gives
   each run a throwaway repository, but until 2026-09-12 not a throwaway session
   namespace: a run asked "how are the other sessions doing?" could list the

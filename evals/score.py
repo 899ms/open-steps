@@ -123,6 +123,7 @@ def quality(path):
         "hashes": len(HASH.findall(text)),
         "jargon": len(JARGON.findall(text)),
         "skill_ran": skill_runs(path),
+        "skill_calls": len(skill_calls(path)),
     }
 
 
@@ -326,13 +327,18 @@ def report(folder, runs):
     # A "with" run counts only when a Skill call in it actually ran. Headless,
     # a call nobody allowed is denied, and a with arm whose skills were all
     # denied answered unaided too: its columns would compare the pack against
-    # itself. Such a model gets one line saying so instead of two rows.
+    # itself. So does a with arm that never called a skill at all. Either way
+    # the model gets one line saying which, instead of two rows.
     rows, unmeasured = [], []
     for m, r in zip(models, cols):
         loaded = [q for q in r["qual"]["with"] if q["skill_ran"]]
         if r["qual"]["with"] and not loaded:
-            unmeasured.append(f"- {label(m)}: not measured. Every Skill call in its "
-                              f"{len(r['qual']['with'])} with-runs was denied, so both arms ran unaided.")
+            n = len(r["qual"]["with"])
+            runs = f"{n} with-run" + ("s" if n != 1 else "")
+            why = (f"Every Skill call in its {runs} was denied"
+                   if any(q["skill_calls"] for q in r["qual"]["with"])
+                   else f"No Skill call in its {runs}")
+            unmeasured.append(f"- {label(m)}: not measured. {why}, so both arms ran unaided.")
             continue
         for arm, q in (("with", loaded), ("without", r["qual"]["without"])):
             if not q:

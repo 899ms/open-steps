@@ -28,7 +28,8 @@ check "os-done-or-not scores 1/1" yes "$(has "$out" '| `os-done-or-not` | 1/1 |'
 
 echo "CASE 2  a quality arm whose every Skill call was denied is not a measurement"
 out="$(score quality-denied)"
-check "says the arm was not measured" yes "$(has "$out" 'not measured')"
+check "says the arm was not measured, and why" yes \
+  "$(has "$out" 'not measured. Every Skill call in its 1 with-run was denied')"
 check "prints no with row for it" no "$(has "$out" '| Haiku 4.5 | with')"
 check "counts the streams that still carried the messaging tools" yes \
   "$(has "$out" 'sealed off from other sessions (no SendMessage or ListAgents tool): 0 of 2')"
@@ -40,7 +41,13 @@ check "does not call it unmeasured" no "$(has "$out" 'not measured')"
 check "counts the sealed streams" yes \
   "$(has "$out" 'sealed off from other sessions (no SendMessage or ListAgents tool): 2 of 2')"
 
-echo "CASE 4  the runner seals every run and lets the quality arm load a skill"
+echo "CASE 4  a quality arm that never called a skill is unaided, not denied"
+out="$(score quality-unaided)"
+check "says no skill was called" yes \
+  "$(has "$out" 'not measured. No Skill call in its 1 with-run, so both arms ran unaided')"
+check "prints no with row for it" no "$(has "$out" '| Haiku 4.5 | with')"
+
+echo "CASE 5  the runner seals every run and lets the quality arm load a skill"
 H="$(mktemp -d)"
 STUB="$(mktemp -d)"
 export STUB_LOG="$STUB/calls.log"
