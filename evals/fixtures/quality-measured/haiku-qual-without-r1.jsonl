@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","model":"claude-haiku-4-5-20251001","tools":["Bash","Read"]}
+{"type":"result","result":"The fix is live. Users still see the old flow.","permission_denials":[]}

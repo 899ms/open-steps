@@ -77,6 +77,40 @@ def skill_calls(path):
     return out
 
 
+def skill_runs(path):
+    """How many Skill calls in a stream actually ran. Headless, a call nobody
+    allowed is denied: the result line lists it under permission_denials with
+    the call's id, and some builds also write a permission_denied system event
+    that carries no id. Matched by id where the stream gives one; the nameless
+    events count only when no id-bearing record exists, so a build that writes
+    both does not deny the same call twice."""
+    uses, denied, nameless = [], set(), 0
+    for d in events(path):
+        if d.get("type") == "system" and d.get("subtype") == "permission_denied":
+            if d.get("tool_name") == "Skill":
+                if d.get("tool_use_id"):
+                    denied.add(d["tool_use_id"])
+                else:
+                    nameless += 1
+            continue
+        if d.get("type") == "result":
+            for p in d.get("permission_denials") or []:
+                if p.get("tool_name") == "Skill":
+                    if p.get("tool_use_id"):
+                        denied.add(p["tool_use_id"])
+                    else:
+                        nameless += 1
+            continue
+        msg = d.get("message")
+        if not isinstance(msg, dict):
+            continue
+        for b in msg.get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") == "Skill":
+                uses.append(b.get("id"))
+    ran = [u for u in uses if u not in denied]
+    return max(0, len(ran) - (0 if denied else nameless))
+
+
 def quality(path):
     text = ""
     for d in events(path):
@@ -88,7 +122,26 @@ def quality(path):
         "lines": len([l for l in text.splitlines() if l.strip()]),
         "hashes": len(HASH.findall(text)),
         "jargon": len(JARGON.findall(text)),
+        "skill_ran": skill_runs(path),
     }
+
+
+def sealed(files):
+    """Streams whose tool list lacks the two tools that reach the other Claude
+    sessions on this machine, against the streams that list their tools at all.
+    run.sh takes both away with a deny rule; the init line shows whether that
+    held for every run of the day."""
+    told = shut = 0
+    for f in files:
+        for d in events(f):
+            if d.get("type") == "system" and d.get("subtype") == "init":
+                tools = d.get("tools")
+                if isinstance(tools, list):
+                    told += 1
+                    if not {"SendMessage", "ListAgents"} & set(tools):
+                        shut += 1
+                break
+    return shut, told
 
 
 # The tiers live in models.md, one row per tier, cheapest first. Row order is
@@ -235,11 +288,14 @@ def report(folder, runs):
     cols = [runs[m] for m in models]
     head = " | ".join(label(m) for m in models)
     per = max((v[1] for r in cols for v in r["phrase"].values()), default=0)
+    shut, told = sealed(sorted(folder.glob("*.jsonl")))
     out = ["# Measured results", "",
            "Written by `score.py` from the raw streams, so no number here is typed",
            "by hand. The phrases are in [`cases.md`](cases.md).", "",
            f"Day `{folder.name}`, models {', '.join(label(m) for m in models)}. "
-           f"Every phrase asked {per} times per model.", "",
+           f"Every phrase asked {per} times per model.",
+           (f"Runs sealed off from other sessions (no SendMessage or ListAgents tool): {shut} of {told}."
+            if told else "Runs sealed off from other sessions: these streams do not list their tools."), "",
            "## Did the right skill switch on by itself", "",
            f"| Skill | {head} |", "|" + "---|" * (len(cols) + 1)]
     for s in ordered_skills(runs):
@@ -266,17 +322,32 @@ def report(folder, runs):
     arms = max((len(r["qual"]["with"]) for r in cols), default=0)
     out += ["", "## Report quality on the same messy input", "",
             "Same report, once normally and once with every skill switched off, "
-            f"{arms} runs each.", "Small numbers, read them as a smoke test.", "",
-            "| Model | pack | verdict block | warning row | lines | hashes | jargon |",
-            "|---|---|---|---|---|---|---|"]
+            f"{arms} runs each.", "Small numbers, read them as a smoke test.", ""]
+    # A "with" run counts only when a Skill call in it actually ran. Headless,
+    # a call nobody allowed is denied, and a with arm whose skills were all
+    # denied answered unaided too: its columns would compare the pack against
+    # itself. Such a model gets one line saying so instead of two rows.
+    rows, unmeasured = [], []
     for m, r in zip(models, cols):
-        for arm in ("with", "without"):
-            q = r["qual"][arm]
+        loaded = [q for q in r["qual"]["with"] if q["skill_ran"]]
+        if r["qual"]["with"] and not loaded:
+            unmeasured.append(f"- {label(m)}: not measured. Every Skill call in its "
+                              f"{len(r['qual']['with'])} with-runs was denied, so both arms ran unaided.")
+            continue
+        for arm, q in (("with", loaded), ("without", r["qual"]["without"])):
             if not q:
                 continue
-            out.append(f"| {label(m)} | {arm} | {pct(q, 'verdict'):.0f}% | "
-                       f"{pct(q, 'warn_row'):.0f}% | {avg(q, 'lines'):.1f} | "
-                       f"{avg(q, 'hashes'):.1f} | {avg(q, 'jargon'):.1f} |")
+            name = arm
+            if arm == "with" and len(q) < len(r["qual"]["with"]):
+                name = f"with ({len(q)} of {len(r['qual']['with'])} runs loaded a skill)"
+            rows.append(f"| {label(m)} | {name} | {pct(q, 'verdict'):.0f}% | "
+                        f"{pct(q, 'warn_row'):.0f}% | {avg(q, 'lines'):.1f} | "
+                        f"{avg(q, 'hashes'):.1f} | {avg(q, 'jargon'):.1f} |")
+    if rows:
+        out += ["| Model | pack | verdict block | warning row | lines | hashes | jargon |",
+                "|---|---|---|---|---|---|---|"] + rows
+    if unmeasured:
+        out += ([""] if rows else []) + unmeasured
     return "\n".join(out) + "\n"
 
 

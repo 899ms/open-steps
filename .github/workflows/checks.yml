@@ -30,6 +30,10 @@ jobs:
       # script of os-big-picture, in throwaway repositories with a throwaway home
       # directory. Needs no git identity and touches nothing outside them.
       - run: bash hooks/test.sh
+      # The measurement scripts, without a model: the scorer on the hand-made
+      # streams in evals/fixtures, the runner against a stand-in `claude` that
+      # records what it was asked. Needs no login.
+      - run: bash evals/test.sh
 
   # Contributions arrive from outside the project and leave again under MIT, so
   # the trailer is where a contributor states they may release what they wrote.

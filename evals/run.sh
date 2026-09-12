@@ -16,7 +16,8 @@
 #      setup and records which skill fired, if any
 #   3. asks the off-topic phrases the same way (no skill should fire)
 #   4. gives the same messy engineer report to the agent twice over: once
-#      normally, once with every skill switched off, 3 times each
+#      with the pack's skills allowed to load, once with every skill switched
+#      off, 3 times each
 #   5. prints the score with evals/score.py (a plain script, no AI judging)
 #
 # Every case lives in evals/cases.md. Cost control: N_RUNS=3, cheapest model
@@ -88,17 +89,41 @@ WORK="$(mktemp -d)"
   && echo "print('hello')" > app.py && git add . \
   && git -c user.name=eval -c user.email=eval@local commit -qm "add app" )
 
-run_one() { # $1 tag  $2 with|without  $3 prompt
+run_one() { # $1 tag  $2 plain|with|without  $3 prompt
   local tag="$MODEL-$1" arm="$2" prompt="$3"
-  # The "without" arm turns every skill off, so the same agent answers unaided.
-  # Plain string, not an array: macOS ships bash 3.2, where expanding an empty
-  # array under `set -u` kills the subshell without a word. $LIMIT expands the
-  # same deliberate way.
-  local extra=""
-  [ "$arm" = "without" ] && extra="--disable-slash-commands"
-  ( cd "$WORK" && $LIMIT claude -p $extra --model "$MODEL" \
+  (
+    cd "$WORK" || exit 1
+    # Headless, nobody answers a permission prompt: a call no rule allows is
+    # denied on the spot, and the stream's result line lists it under
+    # permission_denials. Two rules shape every run here.
+    #
+    # Deny, every run: the two tools that reach the other Claude sessions on
+    # this machine. A bare tool name in a deny rule takes the tool out of the
+    # model's view, so a run asked "how are the other sessions doing?" still
+    # picks os-check-work but cannot list or message anyone (#37).
+    #
+    # Allow, quality arms only: the Skill tool, so the "with" arm really runs
+    # with the pack loaded. Before this every Skill call was denied and both
+    # arms answered unaided (#36). The messy-report prompt picks os-say-simple,
+    # which needs no other tool. The activation and off-topic runs ("plain")
+    # get no allow: the scorer counts the call, made before it is denied, and
+    # that count is the measurement.
+    #
+    # Positional parameters, not an array: macOS ships bash 3.2, where an
+    # empty array under `set -u` kills the subshell without a word. The tool
+    # lists take any number of names, so they go before --model, which ends
+    # them; after the prompt they would swallow it. $LIMIT expands unquoted on
+    # purpose, for the same bash.
+    set -- --disallowedTools SendMessage ListAgents
+    case "$arm" in
+      with)    set -- "$@" --allowedTools Skill ;;
+      # The "without" arm turns every skill off, so the same agent answers unaided.
+      without) set -- "$@" --allowedTools Skill --disable-slash-commands ;;
+    esac
+    $LIMIT claude -p "$@" --model "$MODEL" \
       --max-turns 12 --output-format stream-json --verbose \
-      "$prompt" > "$OUT/$tag.jsonl" 2>"$OUT/$tag.err" </dev/null )
+      "$prompt" > "$OUT/$tag.jsonl" 2>"$OUT/$tag.err" </dev/null
+  )
   # Keep an error file only when there was an error, so one lying around means
   # something to look at.
   [ -s "$OUT/$tag.err" ] || rm -f "$OUT/$tag.err"
@@ -115,7 +140,7 @@ while IFS=$'\t' read -r skill prompt; do
   [ -z "$skill" ] && continue
   i=$((i+1))
   for r in $(seq 1 "$N_RUNS"); do
-    run_one "act-${i}-${skill}-r${r}" with "$prompt" &
+    run_one "act-${i}-${skill}-r${r}" plain "$prompt" &
     while [ "$(jobs -r | wc -l)" -ge "$PAR" ]; do sleep 1; done
   done
 done <<EOF
@@ -129,7 +154,7 @@ while IFS=$'\t' read -r prompt; do
   [ -z "$prompt" ] && continue
   i=$((i+1))
   for r in $(seq 1 "$N_RUNS"); do
-    run_one "neg-${i}-r${r}" with "$prompt" &
+    run_one "neg-${i}-r${r}" plain "$prompt" &
     while [ "$(jobs -r | wc -l)" -ge "$PAR" ]; do sleep 1; done
   done
 done <<EOF

@@ -1,7 +1,7 @@
 # Measurements
 
-Real numbers or nothing. Six files: what we ask, who we ask, what came back,
-and the two scripts in between.
+Real numbers or nothing. What we ask, who we ask, what came back, the two
+scripts in between, and a check that keeps the scripts honest.
 
 - **[`cases.md`](cases.md) is everything we ask.** The phrases that should
   switch a skill on, the off-topic phrases that must switch nothing on, and the
@@ -19,12 +19,25 @@ and the two scripts in between.
   on. Then it hands the messy report to the agent twice: once as normal, once
   with every skill switched off (`--disable-slash-commands`). That second one
   is the honest comparison. `EVAL_MODEL` picks the model.
+- **Every run is headless, so nobody answers a permission prompt.** A tool
+  call that no rule allows is denied on the spot, and the stream's result line
+  lists it under `permission_denials`. `run.sh` sets two rules and no blanket
+  bypass. Every run loses `SendMessage` and `ListAgents`, the tools that reach
+  the other Claude sessions on this machine: a bare tool name in a deny rule
+  takes the tool out of the model's view. The two quality arms, and only
+  those, may call the `Skill` tool, so the `with` arm really answers with the
+  pack loaded. The activation runs get nothing extra: the scorer counts the
+  call, which the model makes before it is denied, and that count is the
+  measurement.
 - **`score.py` does the counting.** No AI judges anything here. Whether a skill
   switched on comes from the log of what the agent called. Quality comes from
   plain word checks: is the verdict block there, is there a warning row, how
   long is the answer, did any commit codes leak through, how much jargon is
-  left. Every transcript says which model wrote it, so renaming a file cannot
-  move a column.
+  left. Whether the `with` arm really had the pack loaded comes from the same
+  log: a `Skill` call that was denied does not count, and a model whose
+  with-runs were all denied gets one line saying "not measured" instead of two
+  rows of numbers. Every transcript says which model wrote it, so renaming a
+  file cannot move a column.
 - **The transcripts stay out of the repository.** One measurement is one run of
   the agent, so a full pass over every phrase on three models is 234 runs and
   12 MB of logs. They go to `~/.claude/open-steps/evals/<day>/`, next to where
@@ -61,6 +74,14 @@ python3 evals/score.py --readme ~/.claude/open-steps/evals/2026-08-24
 Scoring a partial day or a foreign branch without the flag leaves the main
 README exactly as it was.
 
+The scripts have a check of their own that needs no model and no login. It
+runs the scorer over the hand-made streams in `fixtures/` and the runner
+against a stand-in `claude` that only records what it was asked:
+
+```bash
+bash evals/test.sh
+```
+
 ## How to read the numbers fairly
 
 The runs happen on a machine where the pack is installed and working. The
@@ -70,13 +91,16 @@ you would actually use it. It does not measure the skill descriptions on their
 own. A clean-room number would be lower and less useful, and a clean room is
 not available anyway: the reasons are in the traps at the bottom.
 
-The quality table at the end of `results.md` needs a warning. That prompt asks
-for plain words, not for a report, so the missing verdict block is correct
-everywhere. The rest of the row moves more than the pack does. In the last pass
-the pack's own answers left more commit codes in the text than the unaided
-answers did, on two models out of three. Three runs a side is too few to mean
-anything, so the pack claims nothing about how long or how clear the answers
-come out.
+The quality table at the end of `results.md` needs two warnings. First, on
+days measured before 2026-09-12 the `with` arm never had the pack loaded: every
+`Skill` call was denied (the traps below say how), so those rows compared the
+pack against itself, and `score.py` now writes "not measured" in their place.
+Second, that prompt asks for plain words, not for a report, so the missing
+verdict block is correct everywhere. The rest of the row moves more than the
+pack does. In the last pass, an unaided one as it turned out, the answers from
+the `with` arm left more commit codes in the text than the `without` arm did,
+on two models out of three. Three runs a side is too few to mean anything, so
+the pack claims nothing about how long or how clear the answers come out.
 
 Answer length is the same story. One messy input, with the pack and without it,
 gave 1252 output tokens against 1317, on a spread from 655 to 1955. That is
@@ -115,32 +139,41 @@ the pass that ran last, not the one you liked best.
 
 ## Traps in the harness itself
 
-We found all three by running it, not by reading about it.
+We found these by running it, not by reading about it.
 
 - **`fixtures/` holds hand-made streams, not measurements.** One small folder
   per shape the scorer must handle, short enough to read. They exist to show
   the scorer failing and then passing on a shape that bit once; nothing in
-  them was said by a model, and they never feed `results.md`.
+  them was said by a model, and they never feed `results.md`. `test.sh` runs
+  the scorer over them, and CI runs `test.sh`.
 - **A run leaves no reports folder for its throwaway project.** `run.sh` switches
   the stop hook off for the sessions it starts (`OPEN_STEPS_DISABLE=1`); the
   session-start hook stays on because its reminder is part of what is measured.
   Nothing lands in git during a run, so the numbers do not change, only the
   leftovers under `~/.claude/open-steps/reports/` stop appearing.
 - **A denied tool call is a system event whose `message` is a sentence, not an
-  object.** Headless runs get no permission prompt, so every `Skill` call in a
-  sweep is denied and every stream carries these lines. Reading `.content` off
+  object.** Headless runs get no permission prompt, so a `Skill` call nobody
+  allowed is denied, and the stream carries these lines. Reading `.content` off
   one raised, and a single such line ended the whole day's scoring. The model
-  still chose the skill, so activation is unaffected - but the quality arm is:
-  with the pack's skills denied, the `with` arm is running unaided too, and
-  those columns say nothing at all until a run permits them.
-- **The `os-check-work` phrases reach real sessions.** `run.sh` gives each run
-  a throwaway repository, but not a throwaway session namespace: a run asked
-  "how are the other sessions doing?" lists the live Claude sessions on the
-  machine and messages them. In one pass three of them pinged the session that
-  had launched the sweep, and one pinged an unrelated session busy with
-  somebody else's project. Nothing was written and nothing broke, but the runs
-  are not sealed off, and a person watching their own session will see the
-  interruptions. Run a sweep when you can afford that.
+  still chose the skill, so activation was unaffected - but the quality arm
+  was: with the pack's skills denied, the `with` arm ran unaided too, and those
+  columns said nothing. Since 2026-09-12 the two quality arms may call `Skill`
+  (measured on Claude Code 2.1.222: the call runs and `permission_denials`
+  stays empty), and the scorer prints "not measured" for a model whose
+  with-runs were all denied. The two earlier days now read that way, and the
+  next scored day replaces their table in `results.md`.
+- **The `os-check-work` phrases could reach real sessions.** `run.sh` gives
+  each run a throwaway repository, but until 2026-09-12 not a throwaway session
+  namespace: a run asked "how are the other sessions doing?" could list the
+  live Claude sessions on the machine and message them. In one pass three of
+  them pinged the session that had launched the sweep, and one pinged an
+  unrelated session busy with somebody else's project. Nothing was written and
+  nothing broke, but a person watching their own session saw the
+  interruptions. Now every run starts without `SendMessage` and `ListAgents`,
+  and `results.md` counts it: "Runs sealed off from other sessions" says how
+  many streams of the day list neither tool. The skill is still chosen -
+  measured on 2026-09-12, the phrase still calls `os-check-work` - it just has
+  nobody to reach. Days measured before that show 0 of N on that line.
 - `claude -p --bare` skips the login on purpose and cannot sign in.
 - Pointing the tool at an empty home folder signs it out too.
 - macOS ships an old bash, version 3.2. In that version one empty list in the
