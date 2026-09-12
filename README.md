@@ -231,65 +231,66 @@ from then on.
 The pack tells the agent to separate what it measured from what it assumed.
 Same rule for me.
 
-Twenty-one phrases a person would actually say, three per skill, each asked
-three times, headless, in a working installation, on three Claude models. The
-question every time: did the right skill switch on by itself? Three off-topic
-questions, each also asked three times, checked the opposite. Remeasured in
-full on 2026-08-29, the day the seventh skill landed.
+Twenty-five phrases a person would actually say, three per skill plus one
+boundary case, each asked three times, headless, in a working installation, on
+three Claude models. The question every time: did the right skill switch on by
+itself? Three off-topic questions, each also asked three times, checked the
+opposite. Remeasured in full on 2026-09-12, the first sweep with all eight
+skills in it.
 
-`os-big-picture` is **not in these numbers.** Its three phrases are in
-`cases.md`, but the sweep has not been re-run since it landed, so its
-activation is unmeasured - and it is the skill most likely to take a phrase
-from `os-whats-next`, since both answer a question about the project as a
-whole. Run `bash evals/run.sh` before trusting either number.
+`os-big-picture` and `os-whats-next` both answer a question about the project
+as a whole, so the new skill was the one most likely to take a phrase from the
+other. This pass did not see it: nine of nine for each, on every model. Three
+runs per phrase is a smoke test, so a later pass still might.
 
 ![Activation per skill on Haiku 4.5, Sonnet 5 and Opus 5](assets/activation.svg)
 
 <!-- numbers: score.py writes this table, edit the prose but not these rows -->
 
-Measured on 2026-08-29.
+Measured on 2026-09-12.
 
 | Skill | Haiku 4.5 | Sonnet 5 | Opus 5 |
 |---|---|---|---|
+| `os-done-or-not` | 11/12 | 12/12 | 12/12 |
 | `os-whats-next` | 9/9 | 9/9 | 9/9 |
 | `os-check-work` | 9/9 | 9/9 | 9/9 |
 | `os-what-could-go-wrong` | 9/9 | 9/9 | 9/9 |
-| `os-ask-simple` | 9/9 | 8/9 | 9/9 |
-| `os-done-or-not` | 9/9 | 7/9 | 9/9 |
+| `os-big-picture` | 9/9 | 9/9 | 9/9 |
+| `os-ask-simple` | 7/9 | 9/9 | 9/9 |
 | `os-say-simple` | 6/9 | 9/9 | 9/9 |
-| `os-step-by-step` | 4/9 | 9/9 | 9/9 |
-| **All 21 phrases** | **87%** | **95%** | **100%** |
-| Fired on an off-topic question | 1/9 | 0/9 | 0/9 |
+| `os-step-by-step` | 4/9 | 8/9 | 9/9 |
+| **All 25 phrases** | **85%** | **98%** | **100%** |
+| Fired on an off-topic question | 0/9 | 0/9 | 0/9 |
 
 <!-- numbers: end -->
 
 The honest reading, because the misses matter more than the score.
 
-- On Sonnet 5 and Opus 5 this works. Three skills are perfect on every model,
+- On Sonnet 5 and Opus 5 this works. Four skills are perfect on every model,
   and Opus missed nothing at all.
 - `os-what-could-go-wrong` was named the skill most likely to steal a phrase
   from `os-ask-simple`, so that was measured before it merged: 27/27 on its
   own phrases, `os-ask-simple` did not drop, and off-topic questions still
   leave it silent. The fear did not survive the measurement.
-- Sonnet 5 dropped two runs of the vaguest phrase ("That's it for today. What
-  happened?") to no skill at all, not to the new one. Asked six more times
-  the same way, it fired six of six. Read the 7/9 as the same run-to-run
-  wobble Haiku shows below; it stays in the table because that is what the
-  pass measured.
-- On Haiku 4.5, two skills are unreliable and one off-topic question wrongly
-  pulled in a skill. If you run on the cheapest model, expect to type the
-  skill name yourself sometimes.
-- Haiku also moves between runs. Three sweeps of the same phrases have put
-  `os-step-by-step` at 50%, 33% and now 44%, and false fires at zero and one.
-  Three runs per phrase is a smoke test, not a benchmark, and small numbers
-  wobble. I would rather say that than quote the friendliest sweep.
+- Sonnet 5 missed one run in seventy-five, on a step-by-step phrase. In the
+  previous pass it had dropped two runs of the vaguest phrase ("That's it for
+  today. What happened?") to no skill at all; this time that phrase fired
+  three of three. Read both as the run-to-run wobble Haiku shows below.
+- On Haiku 4.5, two skills are unreliable and a third dropped two runs. No
+  off-topic question pulled in a skill this time; one did in the previous
+  pass. If you run on the cheapest model, expect to type the skill name
+  yourself sometimes.
+- Haiku also moves between runs. Four sweeps of the same phrases have put
+  `os-step-by-step` at 50%, 33%, 44% and 44%, and false fires at zero, one and
+  zero. Three runs per phrase is a smoke test, not a benchmark, and small
+  numbers wobble. I would rather say that than quote the friendliest sweep.
 - Where Haiku misses, it usually asks a clarifying question first: told "put
   a secret on the server, tell me what to do", it wants to know which server
   and which secret. That is the pack's own earn-the-ask rule; a one-shot test
   scores it as a miss.
-- The test set is mine, and it is small. Twenty-four phrases in a repository
-  you can read - the twenty-one scored above, plus three that have not been
-  run yet - so write better ones and re-run it.
+- The test set is mine, and it is small. Twenty-five phrases in a repository
+  you can read, every one of them scored above, so write better ones and
+  re-run it.
 
 Two things earlier rounds cost me, kept here because they are the useful part.
 A negation inside a description ("this is NOT the skill for X") is ignored, so

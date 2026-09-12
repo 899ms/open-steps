@@ -98,10 +98,14 @@ days measured before 2026-09-12 the `with` arm never had the pack loaded: every
 pack against itself, and `score.py` now writes "not measured" in their place.
 Second, that prompt asks for plain words, not for a report, so the missing
 verdict block is correct everywhere. The rest of the row moves more than the
-pack does. In the last pass, an unaided one as it turned out, the answers from
-the `with` arm left more commit codes in the text than the `without` arm did,
-on two models out of three. Three runs a side is too few to mean anything, so
-the pack claims nothing about how long or how clear the answers come out.
+pack does, and not in the pack's favour: in the first pass with the skill
+really loaded (2026-09-12, Sonnet 5 and Opus 5; Haiku called no skill), the
+`with` arm left more commit codes and more of the listed jargon words in the
+text than the `without` arm did. Part of that is the skill's own rule, which
+keeps an identifier exact and a term with no plain equivalent once in
+brackets, and the word counter counts both. Three runs a side is too few to
+mean anything, so the pack claims nothing about how long or how clear the
+answers come out.
 
 Answer length is the same story. One messy input, with the pack and without it,
 gave 1252 output tokens against 1317, on a spread from 655 to 1955. That is
