@@ -1,4 +1,4 @@
-[English](README.md) · [Español](README.es.md) · [Русский](README.ru.md) · **Українська** · [한국어](README.ko.md) · [中文](README.zh.md)
+[English](README.md) · [Español](README.es.md) · [Français](README.fr.md) · [Русский](README.ru.md) · **Українська** · [한국어](README.ko.md) · [中文](README.zh.md)
 
 # Open Steps
 
