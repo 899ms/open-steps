@@ -1,0 +1,2 @@
+{"type": "system", "subtype": "init", "model": "claude-opus-5", "tools": ["Bash", "Read", "Skill"]}
+{"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_pm1", "name": "Skill", "input": {"skill": "open-steps:os-what-could-go-wrong"}}]}}

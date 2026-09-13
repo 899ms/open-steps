@@ -5,6 +5,7 @@
 # writes down what it was asked and answers with a two-line stream. HOME points
 # at a throwaway folder, so nothing of yours is read or written.
 
+# shellcheck disable=SC2016  # the backticks below are markdown, matched as text
 PACK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pass=0
 fail=0
@@ -23,7 +24,6 @@ has() { printf '%s' "$1" | grep -qF -- "$2" && echo yes || echo no; }
 
 echo "CASE 1  a denied Skill call still counts as the model's choice"
 out="$(score permission-denied)"
-# shellcheck disable=SC2016  # the backticks are markdown, matched as text
 check "os-done-or-not scores 1/1" yes "$(has "$out" '| `os-done-or-not` | 1/1 |')"
 
 echo "CASE 2  a quality arm whose every Skill call was denied is not a measurement"
@@ -97,10 +97,35 @@ check "five cards for a trivial change fail the restraint check" yes \
   "$(has "$out" 'Restraint: Opus 5 fail')"
 check "a run whose skill was denied is not measured" yes \
   "$(has "$out" 'Haiku 4.5: not measured')"
+# Real reports write the risk cards in bold rather than as headings, and a
+# report with no cards must not pass the two card-based shape properties by
+# having nothing to fail on.
+check "cards written in bold are counted" yes \
+  "$(has "$out" '| Sonnet 5 | trivial | 6 | Think again (1/1) | 4.0 | - |')"
+check "no cards means the card-based properties do not pass" yes \
+  "$(has "$out" '| Sonnet 5 | straight | 4 | Think again (1/1) | 0.0 | 1/1 |')"
+check "four cards for a trivial change fail restraint" yes \
+  "$(has "$out" 'Restraint: Sonnet 5 fail')"
+
+# The five verdicts are words, not punctuation, and a sentence the model made
+# up is not one of them - it reads as "other", which is itself the finding.
+# Runs that disagree show every verdict they gave, not only the commonest.
+out="$(score premortem-verdicts)"
+check "punctuation does not make a different verdict" yes \
+  "$(has "$out" 'Think again (1/2), Go, but fix these first (1/2)')"
+check "a verdict the model invented reads as other" yes \
+  "$(has "$out" 'other (2/2)')"
+
+# A run the time cap killed has no result line. It is not a report that scored
+# nothing; it is a run that did not finish, and counting it would understate
+# the model.
+out="$(score premortem-unfinished)"
+check "an unfinished run is not scored as an empty report" yes \
+  "$(has "$out" 'Opus 5: not measured. 2 premortem runs did not finish')"
+check "and it prints no row of zeros" no "$(has "$out" '| Opus 5 | straight |')"
 
 echo "CASE 7  scoring the whole folder takes each section from its newest day"
 out="$(python3 "$PACK/evals/score.py" --print "$PACK/evals/fixtures/root" 2>&1)"
-# shellcheck disable=SC2016  # the backticks are markdown, matched as text
 check "activation from the day that has it" yes "$(has "$out" 'Day `2026-01-01`')"
 check "premortem from the day that has it" yes "$(has "$out" 'Premortem reports: day `2026-01-02`')"
 check "the activation row is still there" yes "$(has "$out" '| `os-done-or-not` | 1/1 |')"

@@ -3,6 +3,7 @@
 # Every case runs in a throwaway repository with HOME pointed at a throwaway
 # folder, so nothing of yours is read or written.
 
+# shellcheck disable=SC2016  # some checks match literal ${...} text in files
 PACK="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pass=0
 fail=0
