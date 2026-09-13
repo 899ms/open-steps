@@ -12,7 +12,7 @@ description: >-
   this.
 allowed-tools:
   - "Read(~/.claude/open-steps/**)"
-  - "Bash(cat ${CLAUDE_SKILL_DIR}/references/premortem-prompt.md)"
+  - "Bash(bash ${CLAUDE_SKILL_DIR}/scripts/prompt.sh)"
 ---
 
 # os-what-could-go-wrong
@@ -141,9 +141,9 @@ The reasoning behind these is in [`references/why-these-rules.md`](references/wh
 
 The block below is the whole of
 [`references/premortem-prompt.md`](references/premortem-prompt.md), inlined
-when this skill loads, so no file has to be read at dispatch time. If the
-block shows a literal `cat` command instead of the prompt, this harness does
-not run inline commands: open that file next to this one and use its full
-text.
+when this skill loads through `scripts/prompt.sh`, so no file has to be read
+at dispatch time. If the block shows a literal command instead of the prompt,
+this harness does not run inline commands: open that file next to this one
+and use its full text.
 
-!`cat ${CLAUDE_SKILL_DIR}/references/premortem-prompt.md`
+!`bash ${CLAUDE_SKILL_DIR}/scripts/prompt.sh`

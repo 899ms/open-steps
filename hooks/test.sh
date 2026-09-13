@@ -318,6 +318,25 @@ check "a registry entry with no plugin behind it is a fault, not a reason to rea
 printf '%s\n' "$out" | grep -Fq "ok           The hook file adapter.sh is in place."
 check "and nothing is read off the clone in that case" 1 $?
 
+echo "CASE 16  the premortem prompt travels by script, not by cat"
+# Claude Code runs a skill's inline commands before the skill loads, and since
+# 2.1.222 a bare cat of a file outside the session's working directory is
+# refused there, which aborts the whole skill: the agent never sees it. A
+# script in the skill's own folder is the documented way to bring a file in,
+# and it is not refused. The script must print the prompt file exactly, and
+# the skill must ask for it by the same command in both places it names it.
+SK="$PACK/skills/os-what-could-go-wrong"
+[ -f "$SK/scripts/prompt.sh" ]
+check "the script exists" 0 $?
+bash "$SK/scripts/prompt.sh" 2>/dev/null | cmp -s - "$SK/references/premortem-prompt.md"
+check "it prints the prompt file byte for byte" 0 $?
+grep -Fq '!`bash ${CLAUDE_SKILL_DIR}/scripts/prompt.sh`' "$SK/SKILL.md"
+check "the skill loads the prompt through the script" 0 $?
+grep -Fq '"Bash(bash ${CLAUDE_SKILL_DIR}/scripts/prompt.sh)"' "$SK/SKILL.md"
+check "and pre-approves exactly that command" 0 $?
+grep -Fq 'cat ${CLAUDE_SKILL_DIR}' "$SK/SKILL.md"
+check "no inline cat of a skill file is left" 1 $?
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
