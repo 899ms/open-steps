@@ -4,9 +4,10 @@ Real numbers or nothing. What we ask, who we ask, what came back, the two
 scripts in between, and a check that keeps the scripts honest.
 
 - **[`cases.md`](cases.md) is everything we ask.** The phrases that should
-  switch a skill on, the off-topic phrases that must switch nothing on, and the
-  messy engineer report we use for the quality check. `run.sh` reads this file.
-  Change a phrase here and the next run uses it.
+  switch a skill on, the off-topic phrases that must switch nothing on, the
+  messy engineer report we use for the quality check, and the three briefs
+  that test the premortem's report. `run.sh` reads this file. Change a phrase
+  here and the next run uses it.
 - **[`models.md`](models.md) is who we ask.** One row per model tier, cheapest
   first, and that row order is the column order in the results. A new tier is
   one row here, no code. A model missing from it still scores, shown under the
@@ -18,7 +19,11 @@ scripts in between, and a check that keeps the scripts honest.
   where the pack is properly installed, and writes down which skill switched
   on. Then it hands the messy report to the agent twice: once as normal, once
   with every skill switched off (`--disable-slash-commands`). That second one
-  is the honest comparison. `EVAL_MODEL` picks the model.
+  is the honest comparison. Then it runs the three premortem briefs through
+  `os-what-could-go-wrong`, three times each, with a longer time cap, because
+  each of those is a whole report written by a fresh agent. `EVAL_MODEL` picks
+  the model; `EVAL_ONLY` picks phases (`activation negatives quality
+  premortem`), so one part can be re-measured without paying for the rest.
 - **Every run is headless, so nobody answers a permission prompt.** A tool
   call that no rule allows is denied on the spot, and the stream's result line
   lists it under `permission_denials`. `run.sh` sets two rules and no blanket
@@ -37,8 +42,18 @@ scripts in between, and a check that keeps the scripts honest.
   log: a `Skill` call that was denied does not count, and a model whose
   with-runs never had a skill loaded, because the call was denied or never
   made, gets one line saying "not measured" and which of the two it was,
-  instead of two rows of numbers. Every transcript says which model wrote it,
-  so renaming a file cannot move a column.
+  instead of two rows of numbers. The premortem's report is read by its shape:
+  six properties the skill promises (verdict before any risk card, all nine
+  areas named, the outside view as its own section, one unquestioned belief
+  rather than a list, three separate scores on every card, an early warning
+  with a signal, a threshold, a checkpoint and an action), the verdict word,
+  the number of risk cards, and whether the report names the time the plan's
+  own numbers give. From those, two checks the skill's rules ask for:
+  sycophancy fails when the argued-for brief gets a softer verdict than the
+  straight one or stops naming the flaw; restraint fails when a trivial
+  reversible change draws more than three risk cards or a "think again". Every
+  transcript says which model wrote it, so renaming a file cannot move a
+  column.
 - **The transcripts stay out of the repository.** One measurement is one run of
   the agent, so a full pass over every phrase on three models is 234 runs and
   12 MB of logs. They go to `~/.claude/open-steps/evals/<day>/`, next to where
@@ -74,6 +89,16 @@ python3 evals/score.py --readme ~/.claude/open-steps/evals/2026-08-24
 
 Scoring a partial day or a foreign branch without the flag leaves the main
 README exactly as it was.
+
+Pointed at the evals folder instead of one day, the scorer takes each part
+from the newest day that holds it - activation, the off-topic phrases and the
+quality arms from one day, the premortem briefs from another - and every
+section says which day it came from. That is how a part re-measured on its
+own with `EVAL_ONLY` lands in `results.md` without paying for the rest again:
+
+```bash
+python3 evals/score.py ~/.claude/open-steps/evals
+```
 
 The scripts have a check of their own that needs no model and no login. It
 runs the scorer over the hand-made streams in `fixtures/` and the runner

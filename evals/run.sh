@@ -18,10 +18,16 @@
 #   4. gives the same messy engineer report to the agent twice over: once
 #      with the pack's skills allowed to load, once with every skill switched
 #      off, 3 times each
-#   5. prints the score with evals/score.py (a plain script, no AI judging)
+#   5. runs the three premortem briefs through os-what-could-go-wrong, 3 times
+#      each; these runs are long (a fresh agent writes a whole report) and get
+#      a longer time cap
+#   6. prints the score with evals/score.py (a plain script, no AI judging)
 #
 # Every case lives in evals/cases.md. Cost control: N_RUNS=3, cheapest model
-# by default, ~60 short runs. Change N_RUNS to taste.
+# by default. EVAL_ONLY picks phases, space-separated, from: activation
+# negatives quality premortem - so one part can be re-measured without paying
+# for the rest, and score.py stitches the newest day of each part together
+# when pointed at the evals folder instead of one day.
 set -u
 PACK="$(cd "$(dirname "$0")/.." && pwd)"
 CASES="$PACK/evals/cases.md"
@@ -38,11 +44,14 @@ PAR="${EVAL_PARALLEL:-5}"
 # session-start hook stays on: its handover and routing reminder are part of
 # the installed behaviour these runs measure.
 export OPEN_STEPS_DISABLE=1
-# 240s cap per run. macOS ships no timeout command of its own (it usually
-# arrives with Homebrew coreutils), so fall back to gtimeout, then to no cap.
-if command -v timeout >/dev/null 2>&1; then LIMIT="timeout 240"
-elif command -v gtimeout >/dev/null 2>&1; then LIMIT="gtimeout 240"
-else LIMIT=""; fi
+# 240s cap per run, 900s for a premortem, whose fresh agent writes a whole
+# report. macOS ships no timeout command of its own (it usually arrives with
+# Homebrew coreutils), so fall back to gtimeout, then to no cap.
+if command -v timeout >/dev/null 2>&1; then TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_BIN="gtimeout"
+else TIMEOUT_BIN=""; fi
+PHASES="${EVAL_ONLY:-activation negatives quality premortem}"
+want() { case " $PHASES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 # A full sweep is 234 separate agent runs, so it is 234 transcripts. They live
 # outside the repository, next to where the pack keeps its reports: one folder
 # per day, every model in it, each file carrying its model in the name. Running
@@ -89,8 +98,9 @@ WORK="$(mktemp -d)"
   && echo "print('hello')" > app.py && git add . \
   && git -c user.name=eval -c user.email=eval@local commit -qm "add app" )
 
-run_one() { # $1 tag  $2 plain|with|without  $3 prompt
-  local tag="$MODEL-$1" arm="$2" prompt="$3"
+run_one() { # $1 tag  $2 plain|with|without  $3 prompt  $4 seconds cap (240)
+  local tag="$MODEL-$1" arm="$2" prompt="$3" limit=""
+  [ -n "$TIMEOUT_BIN" ] && limit="$TIMEOUT_BIN ${4:-240}"
   (
     cd "$WORK" || exit 1
     # Headless, nobody answers a permission prompt: a call no rule allows is
@@ -112,7 +122,7 @@ run_one() { # $1 tag  $2 plain|with|without  $3 prompt
     # Positional parameters, not an array: macOS ships bash 3.2, where an
     # empty array under `set -u` kills the subshell without a word. The tool
     # lists take any number of names, so they go before --model, which ends
-    # them; after the prompt they would swallow it. $LIMIT expands unquoted on
+    # them; after the prompt they would swallow it. $limit expands unquoted on
     # purpose, for the same bash.
     set -- --disallowedTools SendMessage ListAgents
     case "$arm" in
@@ -120,7 +130,7 @@ run_one() { # $1 tag  $2 plain|with|without  $3 prompt
       # The "without" arm turns every skill off, so the same agent answers unaided.
       without) set -- "$@" --allowedTools Skill --disable-slash-commands ;;
     esac
-    $LIMIT claude -p "$@" --model "$MODEL" \
+    $limit claude -p "$@" --model "$MODEL" \
       --max-turns 12 --output-format stream-json --verbose \
       "$prompt" > "$OUT/$tag.jsonl" 2>"$OUT/$tag.err" </dev/null
   )
@@ -134,7 +144,8 @@ run_one() { # $1 tag  $2 plain|with|without  $3 prompt
 # below runs it once per model in the list, one model at a time, so an
 # interrupted sweep loses only the model in flight, never a finished one.
 sweep() {
-echo "== 2/4 activation ($MODEL, $(table 'Should fire' | wc -l | tr -d ' ') phrases x $N_RUNS runs) =="
+if want activation; then
+echo "== 2/5 activation ($MODEL, $(table 'Should fire' | wc -l | tr -d ' ') phrases x $N_RUNS runs) =="
 i=0
 while IFS=$'\t' read -r skill prompt; do
   [ -z "$skill" ] && continue
@@ -147,8 +158,10 @@ done <<EOF
 $(table 'Should fire')
 EOF
 wait
+fi
 
-echo "== 3/4 negatives ($MODEL) =="
+if want negatives; then
+echo "== 3/5 negatives ($MODEL) =="
 i=0
 while IFS=$'\t' read -r prompt; do
   [ -z "$prompt" ] && continue
@@ -161,8 +174,10 @@ done <<EOF
 $(table 'Should not fire')
 EOF
 wait
+fi
 
-echo "== 4/4 quality, with vs without ($MODEL) =="
+if want quality; then
+echo "== 4/5 quality, with vs without ($MODEL) =="
 QPROMPT="$(block Prompt)
 
 $(block Report)"
@@ -172,6 +187,28 @@ for r in $(seq 1 "$N_RUNS"); do
   while [ "$(jobs -r | wc -l)" -ge "$PAR" ]; do sleep 1; done
 done
 wait
+fi
+
+if want premortem; then
+echo "== 5/5 premortem quality ($MODEL, 3 briefs x $N_RUNS runs) =="
+# The skill must load for these, so the arm is "with". Each run is a whole
+# report written by a fresh agent: minutes, not seconds, hence the 900s cap.
+PMPROMPT="$(block 'Premortem prompt')"
+for brief in straight arguing trivial; do
+  case "$brief" in
+    straight) text="$(block 'Straight brief')" ;;
+    arguing)  text="$(block 'Arguing brief')" ;;
+    trivial)  text="$(block 'Trivial brief')" ;;
+  esac
+  for r in $(seq 1 "$N_RUNS"); do
+    run_one "pm-${brief}-r${r}" with "$text
+
+$PMPROMPT" 900 &
+    while [ "$(jobs -r | wc -l)" -ge "$PAR" ]; do sleep 1; done
+  done
+done
+wait
+fi
 }
 
 for MODEL in $MODELS; do
