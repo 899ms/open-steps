@@ -89,6 +89,7 @@ install_candidates() {
   local km="$PLUGINS/known_marketplaces.json" loc p
   if [ -r "$km" ]; then
     # Recorded folders, one per marketplace. Windows records backslashes.
+    # shellcheck disable=SC1003  # tr wants the backslash doubled, not quoted
     grep -oE '"installLocation"[[:space:]]*:[[:space:]]*"[^"]+"' "$km" 2>/dev/null \
       | sed -E 's/.*"([^"]+)"$/\1/' | tr '\\' '/' | sed -E 's|/{2,}|/|g' \
       | while IFS= read -r loc; do
@@ -102,27 +103,81 @@ install_candidates() {
     -path '*/.claude-plugin/*' 2>/dev/null
 }
 
+# Claude Code runs the copy that installed_plugins.json names under
+# installPath. The folder in known_marketplaces.json is where the plugin came
+# from, and for a marketplace added from a local directory that folder is the
+# clone itself, so a search that starts there reads the clone and says ok
+# about files the running copy never received. The registry decides; the
+# marketplace folders and the plugin cache are searched only when it has no
+# entry to give.
+registry_entry() { # -> two lines, the pack's key and its installPath, or nothing
+  local reg="$PLUGINS/installed_plugins.json" m
+  [ -r "$reg" ] || return 1
+  # Flattened first: the file is pretty-printed today and a one-line copy must
+  # read the same. The array after the key holds one object per scope; the
+  # first is the copy this machine runs. Windows records backslashes.
+  m="$(tr -d '\n' < "$reg" \
+    | grep -oE '"open-steps@[^"]*"[[:space:]]*:[[:space:]]*\[[^]]*"installPath"[[:space:]]*:[[:space:]]*"[^"]+"' \
+    | head -1)"
+  [ -n "$m" ] || return 1
+  printf '%s\n' "$m" | sed -E 's/^"([^"]+)".*/\1/'
+  # shellcheck disable=SC1003  # tr wants the backslash doubled, not quoted
+  printf '%s\n' "$m" | sed -E 's/.*"installPath"[[:space:]]*:[[:space:]]*"([^"]+)"$/\1/' \
+    | tr '\\' '/' | sed -E 's|/{2,}|/|g'
+}
+
+manifest_version() { # $1 manifest -> its version, or nothing
+  grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null \
+    | head -1 | sed -E 's/.*"([^"]*)"$/\1/'
+}
+
 INSTALL=""
 PLUGIN_NAME=""
 MARKET=""
-while IFS= read -r f; do
-  [ -f "$f" ] || continue
-  grep -Eq '"name"[[:space:]]*:[[:space:]]*"open-steps"' "$f" 2>/dev/null || continue
-  root="$(cd "$(dirname "$f")/.." 2>/dev/null && pwd -P)" || continue
-  # A marketplace manifest lives in a folder of the same shape. Only a plugin
-  # brings the skills with it.
-  [ -n "$root" ] && [ -d "$root/skills" ] || continue
-  INSTALL="$root"
-  PLUGIN_NAME="$(json_first_name "$f")"
-  MARKET="$(market_name "$root" "$f")" || MARKET=""
-  break
-done < <(install_candidates)
+REG_PATH=""
+DECIDED=""
+if entry="$(registry_entry)"; then
+  REG_KEY="$(printf '%s\n' "$entry" | sed -n 1p)"
+  REG_PATH="$(printf '%s\n' "$entry" | sed -n 2p)"
+  f="$REG_PATH/.claude-plugin/plugin.json"
+  if [ -f "$f" ] && grep -Eq '"name"[[:space:]]*:[[:space:]]*"open-steps"' "$f" 2>/dev/null \
+      && root="$(cd "$REG_PATH" 2>/dev/null && pwd -P)" && [ -d "$root/skills" ]; then
+    INSTALL="$root"
+    # The key is the name the settings file records, marketplace included.
+    PLUGIN_NAME="${REG_KEY%%@*}"
+    MARKET="${REG_KEY#*@}"
+    DECIDED="registry"
+  else
+    # The registry names a folder with no plugin in it. Searching on from here
+    # would land on the clone and hide a broken install behind an ok.
+    DECIDED="stale"
+  fi
+else
+  DECIDED="search"
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    grep -Eq '"name"[[:space:]]*:[[:space:]]*"open-steps"' "$f" 2>/dev/null || continue
+    root="$(cd "$(dirname "$f")/.." 2>/dev/null && pwd -P)" || continue
+    # A marketplace manifest lives in a folder of the same shape. Only a plugin
+    # brings the skills with it.
+    [ -n "$root" ] && [ -d "$root/skills" ] || continue
+    INSTALL="$root"
+    PLUGIN_NAME="$(json_first_name "$f")"
+    MARKET="$(market_name "$root" "$f")" || MARKET=""
+    break
+  done < <(install_candidates)
+fi
 
 printf 'Open Steps install check\n'
 
 section "Where the pack is installed"
+case "$DECIDED" in
+  registry) fact "Claude Code's plugin registry, installed_plugins.json, names the copy it runs: $REG_PATH." ;;
+  stale)    fault "Claude Code's plugin registry, installed_plugins.json, names $REG_PATH as the installed copy, but there is no plugin there." 1 ;;
+  *)        fact "Claude Code's plugin registry, installed_plugins.json, has no entry for this pack, so the marketplace folders and the plugin cache were searched instead." ;;
+esac
 if [ -z "$INSTALL" ]; then
-  fault "No installed copy of the pack was found. Claude Code cannot see it." 1
+  [ "$DECIDED" = "stale" ] || fault "No installed copy of the pack was found. Claude Code cannot see it." 1
   fact "This script is running from $PACK."
 elif [ "$INSTALL" = "$PACK" ]; then
   fact "This script is running from the installed copy, at $INSTALL."
@@ -130,6 +185,13 @@ else
   fact "This script is running from a clone, not from the installed copy."
   fact "The clone is at $PACK."
   fact "The installed copy is at $INSTALL. Everything below reads that one."
+  # Two versions on one machine are a fact about the update path, never a
+  # fault: files reach the installed copy only when the version number moves.
+  iv="$(manifest_version "$INSTALL/.claude-plugin/plugin.json")"
+  cv="$(manifest_version "$PACK/.claude-plugin/plugin.json")"
+  if [ -n "$iv" ] && [ -n "$cv" ] && [ "$iv" != "$cv" ]; then
+    fact "The installed copy is version $iv and this clone is version $cv. Files move into the installed copy only when the version number changes: git pull, then claude plugin update open-steps@open-steps."
+  fi
 fi
 
 # --- the skills -----------------------------------------------------------
@@ -150,7 +212,7 @@ else
     elif [ ! -r "$f" ]; then
       unreadable="$unreadable $name"
     elif head -1 "$f" | grep -q '^---$' \
-      && sed -n '2,/^---$/p' "$f" | grep -Eq "^name:[[:space:]]*$name[[:space:]]*$"; then
+      && sed -n '2,/^---$/p' "$f" | grep -Eq "^name:[[:space:]]*${name}[[:space:]]*$"; then
       good=$((good + 1))
     else
       # A broken header makes a skill fail without a word. The folder is still

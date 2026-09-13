@@ -275,6 +275,49 @@ out="$(bash "$PACK/skills/os-big-picture/scripts/census.sh" .)"
 printf '%s\n' "$out" | awk -F'\t' '$1 == "AGE" && $3 == "young" && $4 ~ /^[0-9]{4}-/ {found=1} END {exit !found}'
 check "says young, and names the date it starts to mean something" 0 $?
 
+echo "CASE 15  the doctor reads the copy that runs, not the clone it sits in"
+# Claude Code runs the copy named in installed_plugins.json. A marketplace
+# added from a local folder records the clone itself as its location, so a
+# doctor that starts from the marketplace list reads the clone - the one thing
+# its own header says it never does - and says ok about a file the running
+# copy does not have. Both registries here are hand-made; the clone is real.
+H="$(mktemp -d)"; C="$H/cache-copy"
+mkdir -p "$H/.claude/plugins" "$C"
+cp -R "$PACK/." "$C" && rm -rf "$C/.git"
+rm -f "$C/hooks/adapter.sh"
+printf '{"open-steps":{"source":{"source":"directory","path":"%s"},"installLocation":"%s"}}\n' \
+  "$PACK" "$PACK" > "$H/.claude/plugins/known_marketplaces.json"
+printf '{"version":2,"plugins":{"open-steps@open-steps":[{"scope":"user","installPath":"%s","version":"0.0.0"}]}}\n' \
+  "$C" > "$H/.claude/plugins/installed_plugins.json"
+out="$(HOME="$H" bash "$PACK/doctor.sh" 2>/dev/null)"
+printf '%s\n' "$out" | grep -Fq "FAULT        The hook file adapter.sh is missing from the installed copy."
+check "a file missing from the running copy is a fault, not an ok read off the clone" 0 $?
+printf '%s\n' "$out" | grep -Fq "The installed copy is at $(cd "$C" && pwd -P)."
+check "the copy it read is the one the registry names" 0 $?
+printf '%s\n' "$out" | grep -Fq "installed_plugins.json"
+check "it says which registry decided" 0 $?
+cp "$PACK/hooks/adapter.sh" "$C/hooks/adapter.sh"
+out="$(HOME="$H" bash "$PACK/doctor.sh" 2>/dev/null)"
+printf '%s\n' "$out" | grep -Fq "ok           The hook file adapter.sh is in place."
+check "the same file present in the running copy reads ok" 0 $?
+# Two versions on one machine are the update path at work, not a fault.
+awk '{sub(/"version": *"[^"]*"/, "\"version\": \"0.0.0\"")}1' "$C/.claude-plugin/plugin.json" > "$H/pj" \
+  && mv "$H/pj" "$C/.claude-plugin/plugin.json"
+pv="$(grep -oE '"version": *"[^"]*"' "$PACK/.claude-plugin/plugin.json" | head -1 | sed -E 's/.*"([^"]*)"$/\1/')"
+out="$(HOME="$H" bash "$PACK/doctor.sh" 2>/dev/null)"
+printf '%s\n' "$out" | grep -Fq "fact         The installed copy is version 0.0.0 and this clone is version $pv."
+check "a version gap between the copies is reported as a fact" 0 $?
+# A registry entry pointing at a folder with no plugin is a broken install;
+# searching on from there would land on the clone and read ok off it.
+mkdir -p "$H/gone"
+printf '{"version":2,"plugins":{"open-steps@open-steps":[{"scope":"user","installPath":"%s","version":"0.0.0"}]}}\n' \
+  "$H/gone" > "$H/.claude/plugins/installed_plugins.json"
+out="$(HOME="$H" bash "$PACK/doctor.sh" 2>/dev/null)"
+printf '%s\n' "$out" | grep -Fq "FAULT        Claude Code's plugin registry, installed_plugins.json, names $H/gone as the installed copy, but there is no plugin there."
+check "a registry entry with no plugin behind it is a fault, not a reason to read the clone" 0 $?
+printf '%s\n' "$out" | grep -Fq "ok           The hook file adapter.sh is in place."
+check "and nothing is read off the clone in that case" 1 $?
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
