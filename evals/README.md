@@ -213,8 +213,9 @@ We found these by running it, not by reading about it.
   nobody to reach. Days measured before that show 0 of N on that line.
 - **A model can decline to dispatch the fresh agent, and the skill is not the
   reason.** On 2026-09-13 Opus 5 wrote the premortem itself in four of nine
-  runs, saying in its first line that the session's instructions forbid the
-  Agent tool unless asked for; Sonnet 5 and Haiku 4.5 dispatched in every run.
+  runs, and on 2026-09-14 in one of nine, saying in its first line that the
+  session's instructions forbid the Agent tool unless asked for; Sonnet 5 and
+  Haiku 4.5 dispatched in every run.
   The likeliest source is a global instruction on that machine against
   creating subagents ahead of need, which a headless run inherits - a
   candidate, not a proven cause. The "fresh agent" column exists so this shows
