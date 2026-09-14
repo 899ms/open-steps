@@ -160,6 +160,27 @@ def skill_runs(path):
     return max(0, len(ran) - (0 if denied else nameless))
 
 
+def fresh_agent(path):
+    """Whether the run handed the brief to a fresh agent: an Agent call in the
+    stream (Task is the tool's older name) that was not denied. A run whose
+    only dispatch was refused wrote its own report, whatever the report
+    says about itself."""
+    uses, denied = [], set()
+    for d in events(path):
+        if d.get("type") == "result":
+            for p in d.get("permission_denials") or []:
+                if p.get("tool_name") in ("Agent", "Task") and p.get("tool_use_id"):
+                    denied.add(p["tool_use_id"])
+            continue
+        msg = d.get("message")
+        if not isinstance(msg, dict):
+            continue
+        for b in msg.get("content") or []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task"):
+                uses.append(b.get("id"))
+    return any(u not in denied for u in uses)
+
+
 def quality(path):
     text = ""
     for d in events(path):
@@ -183,7 +204,8 @@ def premortem(path):
     its own, one unquestioned belief rather than a list, three separate scores
     on every card, and an early warning that names a signal, a threshold, a
     checkpoint and an action. Plus the verdict word, the number of risk cards,
-    and whether the planted flaw from cases.md is named."""
+    whether the planted flaw from cases.md is named, and whether a fresh agent
+    wrote the report at all."""
     text, finished = "", False
     for d in events(path):
         if d.get("type") == "result":
@@ -208,7 +230,7 @@ def premortem(path):
     }
     return {"shape": shape, "verdict": verdict, "cards": len(cards), "text": text,
             "finished": finished, "skill_ran": skill_runs(path),
-            "skill_calls_seen": bool(skill_calls(path))}
+            "skill_calls_seen": bool(skill_calls(path)), "fresh": fresh_agent(path)}
 
 
 def read_pm(folder):
@@ -408,10 +430,11 @@ def pm_section(folder, pm):
     out += [f"Premortem reports: day `{folder.name}`, {n} run{'s' if n != 1 else ''} per brief per model. Three briefs "
             "from `cases.md`: a straight one with a planted contradiction, the same decision argued "
             "for, and a trivial reversible change. Shape counts six properties of the report; "
-            "\"flaw named\" is whether the report states the time the plan's own numbers give; a "
-            "run whose skill did not load is not measured.", "",
-            "| Model | Brief | Shape (of 6) | Verdict | Risk cards | Flaw named |",
-            "|---|---|---|---|---|---|"]
+            "\"flaw named\" is whether the report states the time the plan's own numbers give; "
+            "\"fresh agent\" is how many runs handed the brief to a fresh agent, which the skill's "
+            "first hard rule asks for every time; a run whose skill did not load is not measured.", "",
+            "| Model | Brief | Shape (of 6) | Verdict | Risk cards | Flaw named | Fresh agent |",
+            "|---|---|---|---|---|---|---|"]
     checks, unmeasured, dropped_total = [], [], 0
     for model in sorted(pm, key=rank):
         briefs = pm[model]
@@ -446,8 +469,9 @@ def pm_section(folder, pm):
             shown = ", ".join(f"{v} ({k}/{len(q)})" for v, k in verdicts.most_common())
             top[b] = (verdicts.most_common(1)[0][0], sum(p["cards"] for p in q) / len(q), q)
             flaw = "-" if all(p["flaw"] is None for p in q) else f"{sum(1 for p in q if p['flaw'])}/{len(q)}"
+            fresh = f"{sum(1 for p in q if p['fresh'])}/{len(q)}"
             out.append(f"| {label(model)} | {b} | {fmt_shape(shape)} | {shown} | "
-                       f"{top[b][1]:.1f} | {flaw} |")
+                       f"{top[b][1]:.1f} | {flaw} | {fresh} |")
         # Both checks read the straight brief as this model's baseline. Where
         # that baseline is missing - the flaw went unnamed there too, or the
         # model never writes risk cards - the check has nothing to compare
@@ -479,20 +503,28 @@ def pm_section(folder, pm):
                                   f"\"{sv}\" on the straight one; flaw named in {named} of {an} runs "
                                   f"against {base} of {sn}.")
         dropped_total += dropped
+        # The threshold is the skill's own: a Quick look, which is what a
+        # trivial change deserves, allows three to five cards. Five is not
+        # too many; six is, and so is a heavy verdict at any count.
         if "trivial" in top:
             v, cards, q = top["trivial"]
             heavy = v in ("Think again", "Do not do this")
             straight_cards = top["straight"][1] if "straight" in top else 0.0
-            if straight_cards < 2 and not heavy:
+            why = []
+            if heavy:
+                why.append(f"a verdict of \"{v}\" on a trivial change")
+            if cards > 5:
+                why.append(f"{cards:.1f} risk cards on a trivial change, above the five a Quick look allows")
+            if straight_cards < 2 and not why:
                 checks.append(f"Restraint: {label(model)} not measured - {cards:.1f} risk cards here, but "
                               f"{straight_cards:.1f} on the straight brief, so a small count is this "
                               "model's habit rather than restraint.")
-            elif cards > 3 or heavy:
-                checks.append(f"Restraint: {label(model)} fail - {cards:.1f} risk cards for a trivial change"
-                              + (f", verdict \"{v}\"" if heavy else "") + ".")
+            elif why:
+                checks.append(f"Restraint: {label(model)} fail - " + "; ".join(why) + ".")
             else:
-                checks.append(f"Restraint: {label(model)} pass - {cards:.1f} risk cards against "
-                              f"{straight_cards:.1f} on the straight brief, verdict \"{v}\".")
+                checks.append(f"Restraint: {label(model)} pass - {cards:.1f} risk cards on a trivial change, "
+                              f"within the five a Quick look allows, against {straight_cards:.1f} on the "
+                              f"straight brief; verdict \"{v}\".")
     if dropped_total:
         out += ["", f"{dropped_total} run{'s' if dropped_total != 1 else ''} left out of the table: the skill did not "
                     "load, or the run did not finish inside its time cap."]
