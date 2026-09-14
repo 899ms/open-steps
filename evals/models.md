@@ -12,6 +12,12 @@ whatever the folder happens to hold.
 A model that matches no row still scores. Its column is labelled by the id
 the stream carries, so nothing is dropped, it just has no short name yet.
 
+A stream from another tool carries that tool's name in front of the model,
+`gemini-cli:gemini-2.5-pro`, and its row here does the same. A row without a
+prefix is Claude Code's own and never fits a prefixed stream, so a Claude
+model run through another tool shows under its raw `agent:model` label until
+it gets a row of its own.
+
 One rule if you edit the table: no `|` inside a cell, it splits the cell.
 
 ## Tiers

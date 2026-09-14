@@ -24,6 +24,9 @@ scripts in between, and a check that keeps the scripts honest.
   each of those is a whole report written by a fresh agent. `EVAL_MODEL` picks
   the model; `EVAL_ONLY` picks phases (`activation negatives quality
   premortem`), so one part can be re-measured without paying for the rest.
+  `EVAL_AGENT` picks the tool: the asking is one script per tool in
+  `agents/`, Claude Code's by default, and the section "Measuring another
+  agent" below is the contract such a script keeps.
 - **Every run is headless, so nobody answers a permission prompt.** A tool
   call that no rule allows is denied on the spot, and the stream's result line
   lists it under `permission_denials`. `run.sh` sets two rules and no blanket
@@ -113,6 +116,59 @@ against a stand-in `claude` that only records what it was asked:
 ```bash
 bash evals/test.sh
 ```
+
+## Measuring another agent
+
+`run.sh` decides what to ask and when; one script per tool does the asking.
+Claude Code's is `agents/claude.sh`. `EVAL_AGENT` picks another by name from
+the same folder, or by path while it is still being written, and the model
+names are then that tool's own:
+
+```bash
+EVAL_AGENT=gemini-cli EVAL_MODEL=gemini-2.5-pro EVAL_ONLY="activation negatives" bash evals/run.sh
+```
+
+A runner is one executable file that keeps five promises.
+
+1. **It is called as `agents/<agent>.sh ARM MODEL PROMPT`**, inside a
+   throwaway git repository, once per run. `ARM` is `plain` for the
+   activation and off-topic phrases, `with` or `without` for the two quality
+   arms; `MODEL` is whatever the tool itself calls a model. An arm the tool
+   cannot do exits 2 with one line on stderr, and that tool's day is run with
+   `EVAL_ONLY` naming the phases it can do.
+2. **It writes the stream the scorer reads to stdout**, one JSON object per
+   line and nothing else there. Three kinds of line carry the measurement.
+   First, the init line: `{"type":"system","subtype":"init","model":"<the
+   tool's model id>","agent":"<agent>"}`. The `agent` field is what keeps the
+   column apart from Claude Code's, whose own stream has none, so a Claude
+   model run through another tool still gets a column of its own. Then one
+   `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"<unique>","name":"Skill","input":{"skill":"os-done-or-not"}}]}}`
+   for every time the agent opened one of the pack's skills, carrying the
+   skill's short name. Last, `{"type":"result","result":"<the final
+   answer>","permission_denials":[]}`; a skill call the tool refused is listed
+   there as `{"tool_name":"Skill","tool_use_id":"<the same id>"}`. Claude Code
+   writes this shape itself, so `claude.sh` converts nothing; a runner for
+   another tool turns that tool's transcript into these lines.
+3. **Its header says what counts as opening a skill on that tool**, the one
+   judgment in the file. On Claude Code it is a call of the `Skill` tool. On a
+   tool that loads a skill by reading its `SKILL.md`, it is that read; on one
+   with an activation tool, that call. A number in `results.md` means what
+   the header says and no more, so the header is part of the measurement.
+4. **It changes nothing else.** The phrases stay in `cases.md`, the scoring
+   stays mechanical, the transcripts stay out of the repository.
+5. **It arrives with its row in `models.md`**, written `agent:model` the way
+   the stream's key reads, and a stream under `fixtures/` that `test.sh`
+   labels by that row. Until the row exists the column shows the raw
+   `agent:model` key, which is honest rather than wrong.
+
+`test.sh` drives the runner seam with a stand-in (CASE 10 to 12): the three
+arguments arrive in order, the auth check goes through the runner too, the
+stream files carry the agent's name, and a Claude model id under another
+agent never wears a Claude tier name. Try a new runner the same way before
+the first paid run, then with one real phrase. A day measured through it
+lands in `results.md` by the same command as a Claude day, from the
+transcripts on the machine that ran it; a pull request that adds a runner
+hands those transcripts over separately, and the maintainer scores them.
 
 ## How to read the numbers fairly
 

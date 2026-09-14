@@ -65,11 +65,12 @@ chmod +x "$STUB/claude"
     bash evals/run.sh > "$STUB/run.out" 2>&1 )
 check "the runner finishes" 0 $?
 T=$'\t'
-runs="$(grep -c -- "stream-json" "$STUB_LOG")"
+# The auth check is one more call through the runner; it is not a measured run.
+runs="$(grep -v -- "say just: ok" "$STUB_LOG" | grep -c -- "stream-json")"
 files="$(find "$H/.claude/open-steps/evals" -name '*.jsonl' | wc -l | tr -d ' ')"
 check "one stream per run ($runs runs)" "$runs" "$files"
 check "every run carries the deny list" "$runs" \
-  "$(grep -c -- "--disallowedTools${T}SendMessage${T}ListAgents${T}" "$STUB_LOG")"
+  "$(grep -v -- "say just: ok" "$STUB_LOG" | grep -c -- "--disallowedTools${T}SendMessage${T}ListAgents${T}")"
 qual="$(grep -- "Say this again in plain words" "$STUB_LOG")"
 check "two quality runs" 2 "$(printf '%s\n' "$qual" | grep -c .)"
 check "both quality runs may load a skill" 2 \
@@ -180,7 +181,7 @@ chmod +x "$STUB/claude"
 ( cd "$PACK" && HOME="$H" PATH="$STUB:$PATH" N_RUNS=1 EVAL_MODEL=haiku EVAL_PARALLEL=1 EVAL_ONLY=premortem \
     bash evals/run.sh > "$STUB/run.out" 2>&1 )
 check "the runner finishes" 0 $?
-check "only the three premortem runs happen" 3 "$(grep -c -- "stream-json" "$STUB_LOG")"
+check "only the three premortem runs happen" 3 "$(grep -v -- "say just: ok" "$STUB_LOG" | grep -c -- "stream-json")"
 check "and they are all premortem runs" 3 "$(grep -c -- "Write the report in English" "$STUB_LOG")"
 rm -rf "$H" "$STUB"
 
@@ -193,6 +194,69 @@ check "six cards fail, and the line names the rule that fired" yes \
 check "a light verdict is not blamed" no "$(has "$out" 'a verdict of "Go, but fix these first"')"
 check "every run here dispatched a fresh agent, and passed its report through whole" yes \
   "$(has "$out" '| Sonnet 5 | trivial | 6 | Go, but fix these first (1/1) | 6.0 | - | 1/1 | 100% |')"
+
+echo "CASE 10  another agent goes through its own runner and gets its own column"
+H="$(mktemp -d)"
+STUB="$(mktemp -d)"
+export STUB_LOG="$STUB/calls.log" CLAUDE_LOG="$STUB/claude.log"
+# The real CLI must never be reached when another agent is under test.
+cat > "$STUB/claude" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAUDE_LOG"
+exit 1
+STUB
+# A stand-in runner: writes down the three arguments the contract gives it,
+# then answers with a stream in the scorer's shape, under a Claude model id on
+# purpose, to prove that the agent field keeps it out of the Claude columns.
+cat > "$STUB/other.sh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\t%s\t%s\n' "$1" "$2" "$3" | tr -d '\n' >> "$STUB_LOG"; printf '\n' >> "$STUB_LOG"
+printf '{"type":"system","subtype":"init","model":"claude-haiku-4-5-20251001","agent":"other","tools":["shell","read_file"]}\n'
+printf '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Skill","input":{"skill":"os-done-or-not"}}]}}\n'
+printf '{"type":"result","result":"ok","permission_denials":[],"total_cost_usd":0}\n'
+STUB
+chmod +x "$STUB/claude" "$STUB/other.sh"
+( cd "$PACK" && HOME="$H" PATH="$STUB:$PATH" N_RUNS=1 EVAL_MODEL=haiku EVAL_PARALLEL=1 \
+    EVAL_AGENT="$STUB/other.sh" EVAL_ONLY="activation negatives" bash evals/run.sh > "$STUB/run.out" 2>&1 )
+check "the runner finishes" 0 $?
+check "the Claude CLI is never called" 0 "$(cat "$CLAUDE_LOG" 2>/dev/null | grep -c .)"
+calls="$(grep -c . "$STUB_LOG")"
+check "every call carries the arm, the model and the prompt, in that order ($calls calls)" "$calls" \
+  "$(grep -c "^plain${T}haiku${T}." "$STUB_LOG")"
+check "the auth check goes through the runner too" 1 "$(grep -c "say just: ok" "$STUB_LOG")"
+files="$(find "$H/.claude/open-steps/evals" -name 'other-haiku-*.jsonl' | wc -l | tr -d ' ')"
+check "one stream per measured run, named by agent and model" "$((calls - 1))" "$files"
+out="$(cat "$STUB/run.out")"
+check "the day's table has a column for the agent, labelled by agent and model id" yes \
+  "$(has "$out" '| Skill | other:claude-haiku-4-5-20251001 |')"
+check "and the Claude model id under it never wears a Claude tier name" no "$(has "$out" 'Haiku 4.5')"
+n="$(awk -F'|' '/^## Should fire/ {f=1; next} /^## / {f=0} f && $2 ~ /os-done-or-not/ {c++} END {print c+0}' "$PACK/evals/cases.md")"
+check "activation is read from the Skill lines the runner wrote ($n phrases)" yes \
+  "$(has "$out" "| \`os-done-or-not\` | $n/$n |")"
+rm -rf "$H" "$STUB"
+
+echo "CASE 11  a runner that does not exist stops the sweep before any call"
+H="$(mktemp -d)"
+STUB="$(mktemp -d)"
+export CLAUDE_LOG="$STUB/claude.log"
+cat > "$STUB/claude" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CLAUDE_LOG"
+exit 1
+STUB
+chmod +x "$STUB/claude"
+out="$(cd "$PACK" && HOME="$H" PATH="$STUB:$PATH" EVAL_AGENT=nope bash evals/run.sh 2>&1)"
+check "the sweep exits with an error" 1 $?
+check "and names the file it looked for" yes "$(has "$out" 'evals/agents/nope.sh')"
+check "without reaching the Claude CLI" 0 "$(cat "$CLAUDE_LOG" 2>/dev/null | grep -c .)"
+rm -rf "$H" "$STUB"
+
+echo "CASE 12  the scorer keeps a Claude model run through another tool out of the Claude column"
+out="$(score agent-column)"
+check "two columns, the agent's labelled by agent and model id" yes \
+  "$(has "$out" '| Skill | Haiku 4.5 | other:claude-haiku-4-5-20251001 |')"
+check "the runs are counted apart, and a run that died is routed to its agent by the file prefix" yes \
+  "$(has "$out" '| `os-done-or-not` | 1/1 | 0/2 |')"
 
 echo
 echo "$pass passed, $fail failed"

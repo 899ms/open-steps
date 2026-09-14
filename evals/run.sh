@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 # Activation and quality measurement for the Open Steps pack.
 #
-# Run it from the pack root, from YOUR terminal (headless claude needs your
-# keychain for OAuth):   bash evals/run.sh
+# Run it from the pack root:   bash evals/run.sh
+# Headless claude signs in with the login your keychain holds; when that login
+# has expired, no headless run can renew it, and /login in your own terminal
+# is the fix.
 #
 # One model by default. A whole day in one go is a list:
 #   EVAL_MODEL="haiku sonnet opus" bash evals/run.sh
+#
+# Claude Code by default. Another tool is a runner in evals/agents/, named by
+# EVAL_AGENT, and its model names are that tool's own:
+#   EVAL_AGENT=gemini-cli EVAL_MODEL=gemini-2.5-pro bash evals/run.sh
+# A path with a slash in it is used as the runner as it is, so a runner can
+# be tried before it lives in the folder. evals/README.md, "Measuring another
+# agent", is the contract a runner has to keep.
 # The models run one after another, so interrupting the sweep leaves every
 # model that already finished intact, and only the one in flight is partial.
 # Re-running one model still replaces just that model's files for the day.
@@ -37,6 +46,19 @@ N_RUNS="${N_RUNS:-3}"
 # array under `set -u` kills the shell without a word.
 MODELS="${EVAL_MODEL:-haiku}"
 PAR="${EVAL_PARALLEL:-5}"
+# The runner: a name from evals/agents/, or a path to one still being written.
+# AGENT is the short name either way; it goes into file names and messages.
+case "${EVAL_AGENT:-claude}" in
+  */*) RUNNER="$EVAL_AGENT"; AGENT="$(basename "$EVAL_AGENT" .sh)" ;;
+  *)   AGENT="${EVAL_AGENT:-claude}"; RUNNER="$PACK/evals/agents/$AGENT.sh" ;;
+esac
+if [ ! -x "$RUNNER" ]; then
+  echo "No runner for '$AGENT': expected an executable file at $RUNNER."
+  printf 'The runners that exist:'
+  for f in "$PACK"/evals/agents/*.sh; do printf ' %s' "$(basename "$f" .sh)"; done
+  echo
+  exit 1
+fi
 # The stop hook stays out of eval runs. Every session here starts inside a
 # throwaway repository, and the hook would leave a reports folder for each one
 # under ~/.claude/open-steps/reports/. Nothing lands in git during a run, so
@@ -54,7 +76,8 @@ PHASES="${EVAL_ONLY:-activation negatives quality premortem}"
 want() { case " $PHASES " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 # A full sweep is 234 separate agent runs, so it is 234 transcripts. They live
 # outside the repository, next to where the pack keeps its reports: one folder
-# per day, every model in it, each file carrying its model in the name. Running
+# per day, every model in it, each file carrying its model in the name, and
+# the agent's name in front of it when the agent is not Claude Code. Running
 # one model again replaces that model's files and leaves the rest of the day
 # alone. The scorer still reads the model out of the stream, not the name.
 OUT="$HOME/.claude/open-steps/evals/$(date +%Y-%m-%d)"
@@ -83,10 +106,11 @@ block() {
 }
 
 FIRST_MODEL="${MODELS%% *}"
-echo "== 1/4 auth check =="
-if ! claude -p --model "$FIRST_MODEL" --max-turns 1 "say just: ok" </dev/null >/dev/null 2>&1; then
-  echo "Authentication failed. Run this from your own terminal (not from an agent),"
-  echo "and make sure 'claude -p \"say ok\"' works first."
+echo "== 1/5 auth check ($AGENT) =="
+if ! "$RUNNER" plain "$FIRST_MODEL" "say just: ok" </dev/null >/dev/null 2>&1; then
+  echo "The runner could not complete one tiny run. Make sure this works first:"
+  echo "  $RUNNER plain $FIRST_MODEL \"say just: ok\""
+  echo "For Claude Code an expired login is the usual cause; /login in your own terminal renews it."
   exit 1
 fi
 echo "auth ok"
@@ -100,39 +124,16 @@ WORK="$(mktemp -d)"
 
 run_one() { # $1 tag  $2 plain|with|without  $3 prompt  $4 seconds cap (240)
   local tag="$MODEL-$1" arm="$2" prompt="$3" limit=""
+  [ "$AGENT" = claude ] || tag="$AGENT-$tag"
   [ -n "$TIMEOUT_BIN" ] && limit="$TIMEOUT_BIN ${4:-240}"
   (
     cd "$WORK" || exit 1
-    # Headless, nobody answers a permission prompt: a call no rule allows is
-    # denied on the spot, and the stream's result line lists it under
-    # permission_denials. Two rules shape every run here.
-    #
-    # Deny, every run: the two tools that reach the other Claude sessions on
-    # this machine. A bare tool name in a deny rule takes the tool out of the
-    # model's view, so a run asked "how are the other sessions doing?" still
-    # picks os-check-work but cannot list or message anyone (#37).
-    #
-    # Allow, quality arms only: the Skill tool, so the "with" arm really runs
-    # with the pack loaded. Before this every Skill call was denied and both
-    # arms answered unaided (#36). The messy-report prompt picks os-say-simple,
-    # which needs no other tool. The activation and off-topic runs ("plain")
-    # get no allow: the scorer counts the call, made before it is denied, and
-    # that count is the measurement.
-    #
-    # Positional parameters, not an array: macOS ships bash 3.2, where an
-    # empty array under `set -u` kills the subshell without a word. The tool
-    # lists take any number of names, so they go before --model, which ends
-    # them; after the prompt they would swallow it. $limit expands unquoted on
-    # purpose, for the same bash.
-    set -- --disallowedTools SendMessage ListAgents
-    case "$arm" in
-      with)    set -- "$@" --allowedTools Skill ;;
-      # The "without" arm turns every skill off, so the same agent answers unaided.
-      without) set -- "$@" --allowedTools Skill --disable-slash-commands ;;
-    esac
-    $limit claude -p "$@" --model "$MODEL" \
-      --max-turns 12 --output-format stream-json --verbose \
-      "$prompt" > "$OUT/$tag.jsonl" 2>"$OUT/$tag.err" </dev/null
+    # What one run is, tool by tool, lives in the runner: which flags seal it
+    # off from other sessions, which arm may load a skill. $limit expands
+    # unquoted on purpose: macOS ships bash 3.2, where an empty array under
+    # `set -u` kills the subshell without a word.
+    $limit "$RUNNER" "$arm" "$MODEL" "$prompt" \
+      > "$OUT/$tag.jsonl" 2>"$OUT/$tag.err" </dev/null
   )
   # Keep an error file only when there was an error, so one lying around means
   # something to look at.

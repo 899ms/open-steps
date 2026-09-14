@@ -15,7 +15,11 @@ itself, so a renamed file cannot mislabel a column. Activation comes from the
 tool-call log, report quality from plain string rules. The phrases come from
 evals/cases.md.
 """
-import json, pathlib, re, sys, collections
+import json
+import pathlib
+import re
+import sys
+import collections
 
 HERE = pathlib.Path(__file__).resolve().parent
 CASES = HERE / "cases.md"
@@ -101,10 +105,32 @@ def events(path):
 
 
 def stream_model(path):
+    """The column a stream belongs to: the model id its init line carries, with
+    the agent that ran it in front when the runner wrote one. Claude Code's own
+    stream has no agent field, so its key is the bare model id; a stream from
+    another tool reads agent:model, and the two never share a column even when
+    the model id is the same."""
     for d in events(path):
         if d.get("type") == "system" and d.get("subtype") == "init":
-            return d.get("model", "")
+            model, agent = d.get("model", ""), d.get("agent", "")
+            return f"{agent}:{model}" if agent and model else model
     return ""
+
+
+def route(tag, known):
+    """A run that died before its init line is routed by the prefix run.sh put
+    on the file. Among the keys the prefix fits, one whose agent the prefix
+    also carries wins, then Claude Code's own; so a bare model alias never
+    lands under another tool, and a prefix nothing fits opens a column of its
+    own rather than disappearing."""
+    hits = [k for k in known if tag and tag in k.replace(":", "-")]
+    for k in hits:
+        if ":" in k and tag.startswith(k.split(":")[0] + "-"):
+            return k
+    for k in hits:
+        if ":" not in k:
+            return k
+    return hits[0] if hits else (tag or "unknown")
 
 
 def skill_calls(path):
@@ -220,7 +246,7 @@ def quality(path):
     return {
         "verdict": bool(re.search(r"fully done|safe to close", text, re.I)),
         "warn_row": "⚠" in text,
-        "lines": len([l for l in text.splitlines() if l.strip()]),
+        "lines": len([ln for ln in text.splitlines() if ln.strip()]),
         "hashes": len(HASH.findall(text)),
         "jargon": len(JARGON.findall(text)),
         "skill_ran": skill_runs(path),
@@ -281,8 +307,7 @@ def read_pm(folder):
         # model instead of opening a column of its own.
         model = found[f]
         if not model:
-            tag = f.stem.split("-pm-")[0]
-            model = next((k for k in known if tag and tag in k), tag or "unknown")
+            model = route(f.stem.split("-pm-")[0], known)
         p = premortem(f)
         token = flaws.get(m.group(1), "-")
         p["flaw"] = None if token in ("", "-") else (token in p["text"])
@@ -314,16 +339,28 @@ def sealed(files):
 TIERS = [r for r in table("Tiers", MODELS)] if MODELS.exists() else []
 
 
+def agent_of(key):
+    return key.split(":", 1)[0] if ":" in key else ""
+
+
+def fits(match, key):
+    """A tier row fits a column key when its text is in the key and both name
+    the same agent. A row without an agent prefix is Claude Code's own, so a
+    Claude model run through another tool keeps its raw agent:model label
+    until models.md gets a row with that prefix."""
+    return match in key and agent_of(match) == agent_of(key)
+
+
 def label(model):
     for match, shown in TIERS:
-        if match in model:
+        if fits(match, model):
             return shown
     return model
 
 
 def rank(model):
     for i, (match, _) in enumerate(TIERS):
-        if match in model:
+        if fits(match, model):
             return (i, model)
     # After every registry row. With no rows at all there is no cheapest to
     # be last behind, so every model is unknown and its id decides the order.
@@ -345,10 +382,7 @@ def read_day(folder):
         tag = f.stem
         for marker in MARKERS:
             tag = tag.split(marker)[0]
-        for m in known:
-            if tag and tag in m:
-                return m
-        return tag or "unknown"
+        return route(tag, known)
 
     runs = {}
     for f in files:
