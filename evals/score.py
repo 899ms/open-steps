@@ -181,6 +181,37 @@ def fresh_agent(path):
     return any(u not in denied for u in uses)
 
 
+def agent_report(path):
+    """What the fresh agent handed back: the longest tool result of an Agent
+    call in the stream, or nothing where no agent ran."""
+    ids, texts = set(), []
+    for d in events(path):
+        msg = d.get("message")
+        if not isinstance(msg, dict):
+            continue
+        for b in msg.get("content") or []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "tool_use" and b.get("name") in ("Agent", "Task"):
+                ids.add(b.get("id"))
+            if b.get("type") == "tool_result" and b.get("tool_use_id") in ids:
+                c = b.get("content")
+                texts.append(c if isinstance(c, str) else
+                             "".join(x.get("text", "") for x in c or [] if isinstance(x, dict)))
+    return max(texts, key=len, default="")
+
+
+def copied(report, final):
+    """The share of the agent's non-blank lines that appear unchanged in the
+    final message. The skill's step 3 asks for the whole report, copied; a
+    model that keeps the headings and rewrites every card shorter scores the
+    shape in full and this low, which is the point of measuring it apart."""
+    lines = [line.strip() for line in report.splitlines() if line.strip()]
+    if not lines:
+        return None
+    return sum(1 for line in lines if line in final) / len(lines)
+
+
 def quality(path):
     text = ""
     for d in events(path):
@@ -204,8 +235,8 @@ def premortem(path):
     its own, one unquestioned belief rather than a list, three separate scores
     on every card, and an early warning that names a signal, a threshold, a
     checkpoint and an action. Plus the verdict word, the number of risk cards,
-    whether the planted flaw from cases.md is named, and whether a fresh agent
-    wrote the report at all."""
+    whether the planted flaw from cases.md is named, whether a fresh agent
+    wrote the report at all, and how much of what it wrote reached the user."""
     text, finished = "", False
     for d in events(path):
         if d.get("type") == "result":
@@ -230,7 +261,8 @@ def premortem(path):
     }
     return {"shape": shape, "verdict": verdict, "cards": len(cards), "text": text,
             "finished": finished, "skill_ran": skill_runs(path),
-            "skill_calls_seen": bool(skill_calls(path)), "fresh": fresh_agent(path)}
+            "skill_calls_seen": bool(skill_calls(path)), "fresh": fresh_agent(path),
+            "copied": copied(agent_report(path), text)}
 
 
 def read_pm(folder):
@@ -432,9 +464,11 @@ def pm_section(folder, pm):
             "for, and a trivial reversible change. Shape counts six properties of the report; "
             "\"flaw named\" is whether the report states the time the plan's own numbers give; "
             "\"fresh agent\" is how many runs handed the brief to a fresh agent, which the skill's "
-            "first hard rule asks for every time; a run whose skill did not load is not measured.", "",
-            "| Model | Brief | Shape (of 6) | Verdict | Risk cards | Flaw named | Fresh agent |",
-            "|---|---|---|---|---|---|---|"]
+            "first hard rule asks for every time; \"report copied\" is the share of that agent's "
+            "lines that reach the final message unchanged, which its step 3 asks for; a run whose "
+            "skill did not load is not measured.", "",
+            "| Model | Brief | Shape (of 6) | Verdict | Risk cards | Flaw named | Fresh agent | Report copied |",
+            "|---|---|---|---|---|---|---|---|"]
     checks, unmeasured, dropped_total = [], [], 0
     for model in sorted(pm, key=rank):
         briefs = pm[model]
@@ -470,8 +504,10 @@ def pm_section(folder, pm):
             top[b] = (verdicts.most_common(1)[0][0], sum(p["cards"] for p in q) / len(q), q)
             flaw = "-" if all(p["flaw"] is None for p in q) else f"{sum(1 for p in q if p['flaw'])}/{len(q)}"
             fresh = f"{sum(1 for p in q if p['fresh'])}/{len(q)}"
+            kept = [p["copied"] for p in q if p["copied"] is not None]
+            kept = f"{100 * sum(kept) / len(kept):.0f}%" if kept else "-"
             out.append(f"| {label(model)} | {b} | {fmt_shape(shape)} | {shown} | "
-                       f"{top[b][1]:.1f} | {flaw} | {fresh} |")
+                       f"{top[b][1]:.1f} | {flaw} | {fresh} | {kept} |")
         # Both checks read the straight brief as this model's baseline. Where
         # that baseline is missing - the flaw went unnamed there too, or the
         # model never writes risk cards - the check has nothing to compare
