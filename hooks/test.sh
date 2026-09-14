@@ -338,6 +338,21 @@ check "and pre-approves exactly that command" 0 $?
 grep -Fq 'cat ${CLAUDE_SKILL_DIR}' "$SK/SKILL.md"
 check "no inline cat of a skill file is left" 1 $?
 
+echo "CASE 17  the premortem skill hands the report over whole"
+# Measured 2026-09-13: Sonnet 5 shrank a fresh agent's 18-25k-character report
+# to 0.8-8.5k in its final message, Haiku 4.5 22k to 4k; Opus 5 passed it
+# through. Step 3 now says mechanically what the final message is, and this
+# pins the sentence so a later edit cannot soften it back. The skill also
+# stays within its one-screen ceiling of 150 lines.
+grep -Fq "a tool result is visible only to" "$SK/SKILL.md"
+check "step 3 says the user cannot see the agent's answer" 0 $?
+grep -Fq "copied whole, first line to last" "$SK/SKILL.md"
+check "and makes the final message the report itself" 0 $?
+grep -Fq "never instead of it" "$SK/SKILL.md"
+check "and puts the agent's own words after it, never in its place" 0 $?
+[ "$(wc -l < "$SK/SKILL.md" | tr -d ' ')" -le 150 ]
+check "the skill fits its 150-line ceiling" 0 $?
+
 echo
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

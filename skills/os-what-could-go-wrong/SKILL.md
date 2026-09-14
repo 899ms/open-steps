@@ -21,8 +21,7 @@ Assume it already failed, then work backwards to find out why - while there is
 still time to change it. The attack runs in a fresh agent that had no part in
 the decision, because an agent that helped shape one reviews it far too
 gently: it defends its own reasoning, and it misses the thing that kills the
-plan out of politeness. This skill writes the brief, hands it over, and passes
-the answer back without softening it.
+plan out of politeness.
 
 `os-ask-simple` screens a choice before the user picks one. This one runs
 after the choice is made and before it can no longer be taken back.
@@ -72,8 +71,7 @@ decision: a brief that argues gets a report that agrees.
 
 ## Step 2 - hand it to an agent that had no part in it
 
-Pick the depth, say which one in a single line, and carry on. The user can
-change it at any point.
+Pick the depth, say which in one line, and carry on; the user can change it.
 
 | Depth | When |
 |---|---|
@@ -93,9 +91,12 @@ first line of the report, name the tool, and never use the word independent.
 
 ## Step 3 - give it to the user straight
 
-Pass the report through as it came. No reassurance the analysis did not earn,
-no cushion sentence in front of the verdict, no quietly dropped card because
-the user seemed committed. Bad news that arrives late is worth nothing.
+The user never sees what the agent returned: a tool result is visible only to
+you. So your final message is that report, copied whole, first line to last.
+One line goes before it: the depth, and whether a fresh agent ran. Anything of
+your own comes after it, never instead of it: no summary in its place, no
+"details above", no reassurance the analysis did not earn, no dropped card
+because the user seemed committed. Bad news that arrives late is worth nothing.
 
 Then offer to turn the "Fix before you commit" list into real things: edits to
 the plan, tickets, an owner and a date per item, a reminder for each early
@@ -120,6 +121,8 @@ warning. "Go ahead" is delivered just as plainly.
    ones are where technical decisions usually actually fail.
 7. **"The plan is sound" is a legitimate answer** once the attack has run. It
    is never a substitute for running one.
+8. **The final message is the report itself.** The user cannot see what the
+   agent returned; a summary of it, however good, is not it.
 
 ## Known gotchas
 
@@ -128,10 +131,8 @@ warning. "Go ahead" is delivered just as plainly.
 - **The brief is where this is won or lost.** The fresh agent sees nothing else.
 - **Fewer than three risks is often the right answer.** Keep the record of what
   was checked.
-- **Something reversible and cheap does not need this.** Quick look, or say it
-  does not need one.
-- **"Try it small first" is not a soft no.** Test the unknowns before the money
-  moves.
+- **Something reversible and cheap does not need this.** Quick look, or say so.
+- **"Try it small first" is not a soft no.** Test unknowns before money moves.
 - **The user may go ahead against all of it.** Note it once, set the tripwires
   up if they want them, and do not re-argue the report.
 
